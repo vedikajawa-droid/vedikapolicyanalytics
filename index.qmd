@@ -15,7 +15,7 @@ Advanced spatial analysis and data science for urban planning and public policy.
 - **Final Project:** Capstone modeling challenge
 
 ## About Me
-Vedika Jawa is an undergraduate student studying Finance and pursuing an accelerated masters in Data Science from the University of Pennsylvania!
+I'm Vedika Jawa, an undergraduate student studying Finance and pursuing an accelerated masters in Data Science from the University of Pennsylvania! As someone very interested in the intersection of data science and public policy, I'm very excited to be taking the Public Policy Analytics course this semester!
 
 ## Contact
 - Email: [vedikaj@upenn.edu]
