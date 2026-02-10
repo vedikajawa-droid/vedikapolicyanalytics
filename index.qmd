@@ -15,8 +15,7 @@ Advanced spatial analysis and data science for urban planning and public policy.
 - **Final Project:** Capstone modeling challenge
 
 ## About Me
-[Students will customize this section]
-
+Vedika Jawa is an undergraduate senior studying Finance and pursuing and accelerated masters in data science. 
 ## Contact
-- Email: [your.email@upenn.edu]
-- GitHub: [@your-username]
+- Email: vedikaj@wharton.upenn.edu
+- GitHub: @vedikajawa-droid
