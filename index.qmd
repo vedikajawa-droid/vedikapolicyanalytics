@@ -1,0 +1,22 @@
+---
+title: "MUSA 5080 Portfolio"
+---
+
+# Welcome to My Portfolio
+
+This portfolio documents my learning journey in Public Policy Analytics (MUSA 5080).
+
+## About This Course
+Advanced spatial analysis and data science for urban planning and public policy.
+
+## Portfolio Structure
+- **Weekly Notes:** My learning reflections and key concepts
+- **Labs:** Completed assignments and analyses
+- **Final Project:** Capstone modeling challenge
+
+## About Me
+[Students will customize this section]
+
+## Contact
+- Email: [your.email@upenn.edu]
+- GitHub: [@your-username]

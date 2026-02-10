@@ -1,0 +1,38 @@
+# =========================
+# Quarto
+# =========================
+# Quarto build artifacts (HTML, site output, etc.)
+_site/
+.quarto/
+.quarto-cache/
+
+
+# =========================
+# R
+# =========================
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# Renviron / local secrets
+.Renviron
+.Renviron.*
+
+
+
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# =========================
+# Logs / temp
+# =========================
+*.log
+*.tmp
+*~
