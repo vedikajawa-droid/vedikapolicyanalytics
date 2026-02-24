@@ -4024,7 +4024,7 @@ vertical-align: -.125em;
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(knitr)</span>
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Load spatial data</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>data_dir <span class="ot">&lt;-</span> <span class="fu">path.expand</span>(<span class="st">&quot;~/Documents/MUSA 5080/vedikapolicyanalytics/labs/lab_2/data&quot;</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>data_dir <span class="ot">&lt;-</span> <span class="fu">path.expand</span>(<span class="st">&quot;data&quot;</span>)</span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>counties  <span class="ot">&lt;-</span> <span class="fu">st_read</span>(<span class="fu">file.path</span>(data_dir, <span class="st">&quot;Pennsylvania_County_Boundaries&quot;</span>))</span>
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>hospitals <span class="ot">&lt;-</span> <span class="fu">st_read</span>(<span class="fu">file.path</span>(data_dir, <span class="st">&quot;hospitals.geojson&quot;</span>))</span>
@@ -5108,7 +5108,7 @@ vertical-align: -.125em;
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(knitr)</span>
 <span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Load your additional dataset</span></span>
-<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>data_dir <span class="ot">&lt;-</span> <span class="fu">path.expand</span>(<span class="st">&quot;~/Documents/MUSA 5080/vedikapolicyanalytics/labs/lab_2/data&quot;</span>)</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>data_dir <span class="ot">&lt;-</span> <span class="fu">path.expand</span>(<span class="st">&quot;data&quot;</span>)</span>
 <span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>ppr_path <span class="ot">&lt;-</span> <span class="fu">file.path</span>(data_dir, <span class="st">&quot;PPR_Program_Sites.geojson&quot;</span>)</span>
 <span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>program_sites_raw <span class="ot">&lt;-</span> <span class="fu">st_read</span>(ppr_path, <span class="at">quiet =</span> <span class="cn">TRUE</span>)</span>

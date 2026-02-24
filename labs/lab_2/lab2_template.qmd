@@ -60,7 +60,7 @@ library(tigris)
 library(knitr)
 
 # Load spatial data
-data_dir <- path.expand("~/Documents/MUSA 5080/vedikapolicyanalytics/labs/lab_2/data")
+data_dir <- path.expand("data")
 
 counties  <- st_read(file.path(data_dir, "Pennsylvania_County_Boundaries"))
 hospitals <- st_read(file.path(data_dir, "hospitals.geojson"))
@@ -938,7 +938,7 @@ library(dplyr)
 library(knitr)
 
 # Load your additional dataset
-data_dir <- path.expand("~/Documents/MUSA 5080/vedikapolicyanalytics/labs/lab_2/data")
+data_dir <- path.expand("data")
 ppr_path <- file.path(data_dir, "PPR_Program_Sites.geojson")
 
 program_sites_raw <- st_read(ppr_path, quiet = TRUE)
