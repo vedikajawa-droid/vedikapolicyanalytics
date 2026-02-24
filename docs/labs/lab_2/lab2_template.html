@@ -3903,7 +3903,7 @@ vertical-align: -.125em;
   </li>  
         <li>
     <a class="dropdown-item" href="../../labs/lab_2/lab2_template.html">
- <span class="dropdown-text">Lab 2: [Lab Title]</span></a>
+ <span class="dropdown-text">Lab 2: Spatial Analysis and Visualization</span></a>
   </li>  
     </ul>
   </li>
@@ -3928,7 +3928,6 @@ vertical-align: -.125em;
   <li><a href="#research-question" id="toc-research-question" class="nav-link" data-scroll-target="#research-question">Research Question</a></li>
   <li><a href="#required-analysis-steps" id="toc-required-analysis-steps" class="nav-link" data-scroll-target="#required-analysis-steps">Required Analysis Steps</a></li>
   </ul></li>
-  <li><a href="#eeach-dataset-is-in-epsg3857-wgs-84-pseudo-mercator." id="toc-eeach-dataset-is-in-epsg3857-wgs-84-pseudo-mercator." class="nav-link" data-scroll-target="#eeach-dataset-is-in-epsg3857-wgs-84-pseudo-mercator.">Eeach dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).</a></li>
   <li><a href="#part-2-comprehensive-visualization" id="toc-part-2-comprehensive-visualization" class="nav-link" data-scroll-target="#part-2-comprehensive-visualization">Part 2: Comprehensive Visualization</a>
   <ul class="collapse">
   <li><a href="#map-1-county-level-choropleth" id="toc-map-1-county-level-choropleth" class="nav-link" data-scroll-target="#map-1-county-level-choropleth">Map 1: County-Level Choropleth</a></li>
@@ -3988,7 +3987,14 @@ vertical-align: -.125em;
 
 <section id="assignment-overview" class="level2">
 <h2 class="anchored" data-anchor-id="assignment-overview">Assignment Overview</h2>
-<p><strong>Learning Objectives:</strong> - Apply spatial operations to answer policy-relevant research questions - Integrate census demographic data with spatial analysis - Create publication-quality visualizations and maps - Work with spatial data from multiple sources - Communicate findings effectively for policy audiences</p>
+<p><strong>Learning Objectives:</strong></p>
+<ul>
+<li>Apply spatial operations to answer policy-relevant research questions</li>
+<li>Integrate census demographic data with spatial analysis</li>
+<li>Create publication-quality visualizations and maps</li>
+<li>Work with spatial data from multiple sources</li>
+<li>Communicate findings effectively for policy audiences</li>
+</ul>
 <hr>
 </section>
 <section id="part-1-healthcare-access-for-vulnerable-populations" class="level2">
@@ -4003,7 +4009,12 @@ vertical-align: -.125em;
 <p>Complete the following analysis, documenting each step with code and brief explanations:</p>
 <section id="step-1-data-collection-5-points" class="level4">
 <h4 class="anchored" data-anchor-id="step-1-data-collection-5-points">Step 1: Data Collection (5 points)</h4>
-<p>Load the required spatial data: - Pennsylvania county boundaries - Pennsylvania hospitals (from lecture data) - Pennsylvania census tracts</p>
+<p>Load the required spatial data:</p>
+<ul>
+<li>Pennsylvania county boundaries</li>
+<li>Pennsylvania hospitals (from lecture data)</li>
+<li>Pennsylvania census tracts</li>
+</ul>
 <p><strong>Your Task:</strong></p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Load required packages</span></span>
@@ -4040,24 +4051,30 @@ vertical-align: -.125em;
 <span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(data_summary, <span class="at">caption =</span> <span class="st">&quot;Loaded spatial datasets (Lab 2, Step 1)&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<p><strong>Questions to answer:</strong> - How many hospitals are in your dataset?</p>
-<p>223 hospitals</p>
+<p><strong>Questions to answer:</strong></p>
+<p><strong>How many hospitals are in your dataset?</strong></p>
 <ul>
-<li>How many census tracts?</li>
+<li>223 hospitals</li>
 </ul>
-<p>3,446 census tracts</p>
+<p><strong>How many census tracts?</strong></p>
 <ul>
-<li>What coordinate reference system is each dataset in?</li>
+<li>3,446 census tracts</li>
 </ul>
+<p><strong>What coordinate reference system is each dataset in?</strong></p>
+<ul>
+<li>Each dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).</li>
+</ul>
+<hr>
 </section>
-</section>
-</section>
-<section id="eeach-dataset-is-in-epsg3857-wgs-84-pseudo-mercator." class="level2">
-<h2 class="anchored" data-anchor-id="eeach-dataset-is-in-epsg3857-wgs-84-pseudo-mercator.">Eeach dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).</h2>
 <section id="step-2-get-demographic-data" class="level4">
 <h4 class="anchored" data-anchor-id="step-2-get-demographic-data">Step 2: Get Demographic Data</h4>
 <p>Use <code>tidycensus</code> to download tract-level demographic data for Pennsylvania.</p>
-<p><strong>Required variables:</strong> - Total population - Median household income - Population 65 years and over (you may need to sum multiple age categories)</p>
+<p><strong>Required variables:</strong></p>
+<ul>
+<li>Total population</li>
+<li>Median household income</li>
+<li>Population 65 years and over (you may need to sum multiple age categories)</li>
+</ul>
 <p><strong>Your Task:</strong></p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidycensus)</span>
@@ -4114,26 +4131,26 @@ vertical-align: -.125em;
 <span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>median_income_pa <span class="ot">&lt;-</span> <span class="fu">median</span>(acs_wide<span class="sc">$</span>med_hh_income, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
 <span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>answers_step2 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">question =</span> <span class="fu">c</span>(</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Question =</span> <span class="fu">c</span>(</span>
 <span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;ACS year used&quot;</span>,</span>
 <span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Tracts with missing income data&quot;</span>,</span>
 <span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Median income across all PA census tracts&quot;</span></span>
 <span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">answer =</span> <span class="fu">c</span>(</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">Answer =</span> <span class="fu">c</span>(</span>
 <span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">paste0</span>(acs_year, <span class="st">&quot; (ACS 5-year, acs5)&quot;</span>),</span>
 <span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    missing_income_tracts,</span>
 <span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(median_income_pa, <span class="dv">0</span>)</span>
 <span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(answers_step2, <span class="at">caption =</span> <span class="st">&quot;Step 2 answers&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(answers_step2, <span class="at">caption =</span> <span class="st">&quot;Step 2 Answers&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <table class="caption-top table table-sm table-striped small">
-<caption>Step 2 answers</caption>
+<caption>Step 2 Answers</caption>
 <thead>
 <tr class="header">
-<th style="text-align: left;">question</th>
-<th style="text-align: left;">answer</th>
+<th style="text-align: left;">Question</th>
+<th style="text-align: left;">Answer</th>
 </tr>
 </thead>
 <tbody>
@@ -4153,21 +4170,27 @@ vertical-align: -.125em;
 </table>
 </div>
 </div>
-<p><strong>Questions to answer:</strong> - What year of ACS data are you using?</p>
-<p>2022 American Community Survey (ACS) 5-year estimates</p>
+<p><strong>Questions to answer:</strong> <strong>What year of ACS data are you using?</strong></p>
 <ul>
-<li>How many tracts have missing income data?</li>
+<li>2022 American Community Survey (ACS) 5-year estimates</li>
 </ul>
-<p>63 census tracts</p>
+<p><strong>How many tracts have missing income data?</strong></p>
 <ul>
-<li>What is the median income across all PA census tracts?</li>
+<li>63 census tracts</li>
 </ul>
-<p>$70,188</p>
+<p><strong>What is the median income across all PA census tracts?</strong></p>
+<ul>
+<li>$70,188</li>
+</ul>
 <hr>
 </section>
 <section id="step-3-define-vulnerable-populations" class="level4">
 <h4 class="anchored" data-anchor-id="step-3-define-vulnerable-populations">Step 3: Define Vulnerable Populations</h4>
-<p>Identify census tracts with vulnerable populations based on TWO criteria: 1. Low median household income (choose an appropriate threshold) 2. Significant elderly population (choose an appropriate threshold)</p>
+<p>Identify census tracts with vulnerable populations based on TWO criteria:</p>
+<ol type="1">
+<li>Low median household income (choose an appropriate threshold)</li>
+<li>Significant elderly population (choose an appropriate threshold)</li>
+</ol>
 <p><strong>Your Task:</strong></p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Filter for vulnerable tracts based on your criteria</span></span>
@@ -4200,13 +4223,13 @@ vertical-align: -.125em;
 <span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>pct_vulnerable <span class="ot">&lt;-</span> <span class="dv">100</span> <span class="sc">*</span> n_vulnerable <span class="sc">/</span> n_total_tracts</span>
 <span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>vuln_summary <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">metric =</span> <span class="fu">c</span>(</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">Metric =</span> <span class="fu">c</span>(</span>
 <span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Income threshold (bottom 25% cutoff)&quot;</span>,</span>
 <span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Elderly share threshold&quot;</span>,</span>
 <span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Number of vulnerable tracts&quot;</span>,</span>
 <span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Percent of PA tracts vulnerable&quot;</span></span>
 <span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">Value =</span> <span class="fu">c</span>(</span>
 <span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(income_threshold, <span class="dv">0</span>),</span>
 <span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">paste0</span>(elderly_share_threshold <span class="sc">*</span> <span class="dv">100</span>, <span class="st">&quot;% (65+ share)&quot;</span>),</span>
 <span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>    n_vulnerable,</span>
@@ -4214,14 +4237,14 @@ vertical-align: -.125em;
 <span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(vuln_summary, <span class="at">caption =</span> <span class="st">&quot;Vulnerability definition and results&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(vuln_summary, <span class="at">caption =</span> <span class="st">&quot;Vulnerability Definition and Results&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <table class="caption-top table table-sm table-striped small">
-<caption>Vulnerability definition and results</caption>
+<caption>Vulnerability Definition and Results</caption>
 <thead>
 <tr class="header">
-<th style="text-align: left;">metric</th>
-<th style="text-align: left;">value</th>
+<th style="text-align: left;">Metric</th>
+<th style="text-align: left;">Value</th>
 </tr>
 </thead>
 <tbody>
@@ -4245,20 +4268,22 @@ vertical-align: -.125em;
 </table>
 </div>
 </div>
-<p><strong>Questions to answer:</strong> - What income threshold did you choose and why?</p>
-<p>I defined “low income” as census tracts in the bottom quartile (25th percentile) of tract median household income in Pennsylvania. This corresponds to an income cutoff of $55,924. Using a percentile-based threshold is appropriate because it is state-specific and distribution-aware, and it targets the tracts that are most economically disadvantaged relative to other tracts in PA.</p>
+<p><strong>Questions to answer:</strong> <strong>What income threshold did you choose and why?</strong></p>
 <ul>
-<li>What elderly population threshold did you choose and why?</li>
+<li>I defined “low income” as census tracts in the bottom quartile (25th percentile) of tract median household income in Pennsylvania. This corresponds to an income cutoff of $55,924. Using a percentile-based threshold is appropriate because it is state-specific and distribution-aware, and it targets the tracts that are most economically disadvantaged relative to other tracts in PA.</li>
 </ul>
-<p>I defined a “significant elderly population” as tracts where at least 15% of residents are age 65+. This threshold flags tracts with a meaningfully high concentration of older residents, who tend to have greater healthcare needs and may face mobility/access constraints, making geographic access to hospitals more consequential.</p>
+<p><strong>What elderly population threshold did you choose and why?</strong></p>
 <ul>
-<li>How many tracts meet your vulnerability criteria?</li>
+<li>I defined a “significant elderly population” as tracts where at least 15% of residents are age 65+. This threshold flags tracts with a meaningfully high concentration of older residents, who tend to have greater healthcare needs and may face mobility/access constraints, making geographic access to hospitals more consequential.</li>
 </ul>
-<p>Using these two criteria jointly (income ≤ $55,924 and 65+ share ≥ 15%), 473 census tracts meet the vulnerability definition.</p>
+<p><strong>How many tracts meet your vulnerability criteria?</strong></p>
 <ul>
-<li>What percentage of PA census tracts are considered vulnerable by your definition?</li>
+<li>Using these two criteria jointly (income ≤ $55,924 and 65+ share ≥ 15%), 473 census tracts meet the vulnerability definition.</li>
 </ul>
-<p>Under this definition, 13.73% of Pennsylvania census tracts are classified as vulnerable.</p>
+<p><strong>What percentage of PA census tracts are considered vulnerable by your definition?</strong></p>
+<ul>
+<li>Under this definition, 13.73% of Pennsylvania census tracts are classified as vulnerable.</li>
+</ul>
 <hr>
 </section>
 <section id="step-4-calculate-distance-to-hospitals" class="level4">
@@ -4302,26 +4327,26 @@ vertical-align: -.125em;
 <span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>n_over_15 <span class="ot">&lt;-</span> <span class="fu">sum</span>(vuln_with_dist<span class="sc">$</span>dist_to_hosp_miles <span class="sc">&gt;</span> <span class="dv">15</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
 <span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>dist_summary <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">metric =</span> <span class="fu">c</span>(</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">Metric =</span> <span class="fu">c</span>(</span>
 <span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Average distance to nearest hospital (miles)&quot;</span>,</span>
 <span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Maximum distance to nearest hospital (miles)&quot;</span>,</span>
 <span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Vulnerable tracts &gt; 15 miles from nearest hospital&quot;</span></span>
 <span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">Value =</span> <span class="fu">c</span>(</span>
 <span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(avg_dist, <span class="dv">2</span>),</span>
 <span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(max_dist, <span class="dv">2</span>),</span>
 <span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>    n_over_15</span>
 <span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(dist_summary, <span class="at">caption =</span> <span class="st">&quot;Distance to nearest hospital (vulnerable tracts)&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(dist_summary, <span class="at">caption =</span> <span class="st">&quot;Distance to Nearest Hospital (vulnerable tracts)&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <table class="caption-top table table-sm table-striped small">
-<caption>Distance to nearest hospital (vulnerable tracts)</caption>
+<caption>Distance to Nearest Hospital (vulnerable tracts)</caption>
 <thead>
 <tr class="header">
-<th style="text-align: left;">metric</th>
-<th style="text-align: right;">value</th>
+<th style="text-align: left;">Metric</th>
+<th style="text-align: right;">Value</th>
 </tr>
 </thead>
 <tbody>
@@ -4341,18 +4366,26 @@ vertical-align: -.125em;
 </table>
 </div>
 </div>
-<p><strong>Requirements:</strong> - Use an appropriate projected coordinate system for Pennsylvania - Calculate distances in miles - Explain why you chose your projection</p>
 <p>I calculated distances using NAD83 / UTM Zone 18N (EPSG:26918) because it is a projected coordinate system that measures distance in meters rather than degrees. Since Pennsylvania falls largely within UTM Zone 18N, this projection minimizes distortion across the state and produces more accurate tract-to-hospital distance estimates than a geographic CRS.</p>
-<p><strong>Questions to answer:</strong> - What is the average distance to the nearest hospital for vulnerable tracts?</p>
-<p>On average, vulnerable census tracts are located 4.05 miles from the nearest hospital.</p>
+<p><strong>Requirements:</strong></p>
 <ul>
-<li>What is the maximum distance?</li>
+<li>Use an appropriate projected coordinate system for Pennsylvania</li>
+<li>Calculate distances in miles</li>
+<li>Explain why you chose your projection</li>
 </ul>
-<p>The maximum distance to the nearest hospital among vulnerable tracts is 25.64 miles.</p>
+<p><strong>Questions to answer:</strong></p>
+<p><strong>What is the average distance to the nearest hospital for vulnerable tracts?</strong></p>
 <ul>
-<li>How many vulnerable tracts are more than 15 miles from the nearest hospital?</li>
+<li>On average, vulnerable census tracts are located 4.05 miles from the nearest hospital.</li>
 </ul>
-<p>21 vulnerable census tracts are located more than 15 miles from the nearest hospital.</p>
+<p><strong>What is the maximum distance?</strong></p>
+<ul>
+<li>The maximum distance to the nearest hospital among vulnerable tracts is 25.64 miles.</li>
+</ul>
+<p><strong>How many vulnerable tracts are more than 15 miles from the nearest hospital?</strong></p>
+<ul>
+<li>21 vulnerable census tracts are located more than 15 miles from the nearest hospital.</li>
+</ul>
 <hr>
 </section>
 <section id="step-5-identify-underserved-areas" class="level4">
@@ -4382,26 +4415,26 @@ vertical-align: -.125em;
 <span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>pct_vulnerable_underserved <span class="ot">&lt;-</span> <span class="dv">100</span> <span class="sc">*</span> n_underserved <span class="sc">/</span> n_vulnerable_total</span>
 <span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>underserved_summary <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">metric =</span> <span class="fu">c</span>(</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">Metric =</span> <span class="fu">c</span>(</span>
 <span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Underserved threshold (miles)&quot;</span>,</span>
 <span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Number of underserved tracts&quot;</span>,</span>
 <span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Percent of vulnerable tracts underserved&quot;</span></span>
 <span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(</span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">Value =</span> <span class="fu">c</span>(</span>
 <span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>    underserved_threshold,</span>
 <span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>    n_underserved,</span>
 <span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">paste0</span>(<span class="fu">round</span>(pct_vulnerable_underserved, <span class="dv">2</span>), <span class="st">&quot;%&quot;</span>)</span>
 <span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(underserved_summary, <span class="at">caption =</span> <span class="st">&quot;Underserved tracts summary&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(underserved_summary, <span class="at">caption =</span> <span class="st">&quot;Underserved Tracts Summary&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <table class="caption-top table table-sm table-striped small">
-<caption>Underserved tracts summary</caption>
+<caption>Underserved Tracts Summary</caption>
 <thead>
 <tr class="header">
-<th style="text-align: left;">metric</th>
-<th style="text-align: left;">value</th>
+<th style="text-align: left;">Metric</th>
+<th style="text-align: left;">Value</th>
 </tr>
 </thead>
 <tbody>
@@ -4421,16 +4454,19 @@ vertical-align: -.125em;
 </table>
 </div>
 </div>
-<p><strong>Questions to answer:</strong> - How many tracts are underserved?</p>
-<p>21 census tracts.</p>
+<p><strong>Questions to answer:</strong></p>
+<p><strong>How many tracts are underserved?</strong></p>
 <ul>
-<li>What percentage of vulnerable tracts are underserved?</li>
+<li>21 census tracts.</li>
 </ul>
-<p>4.44% of all vulnerable census tracts.</p>
+<p><strong>What percentage of vulnerable tracts are underserved?</strong></p>
 <ul>
-<li>Does this surprise you? Why or why not?</li>
+<li>4.44% of all vulnerable census tracts.</li>
 </ul>
-<p>I am somewhat not surprised. While Pennsylvania contains large rural areas where hospitals are relatively sparse, the state overall has a fairly dense healthcare infrastructure, especially in urban and suburban regions. As a result, only a small share of vulnerable tracts are located far from hospitals. However, the existence of even a small number of underserved tracts is important, as these communities may face meaningful geographic barriers to care and could benefit from targeted policy interventions.</p>
+<p><strong>Does this surprise you? Why or why not?</strong></p>
+<ul>
+<li>I am somewhat not surprised. While Pennsylvania contains large rural areas where hospitals are relatively sparse, the state overall has a fairly dense healthcare infrastructure, especially in urban and suburban regions. As a result, only a small share of vulnerable tracts are located far from hospitals. However, the existence of even a small number of underserved tracts is important, as these communities may face meaningful geographic barriers to care and could benefit from targeted policy interventions.</li>
+</ul>
 <hr>
 </section>
 <section id="step-6-aggregate-to-county-level" class="level4">
@@ -4607,18 +4643,28 @@ vertical-align: -.125em;
 </table>
 </div>
 </div>
-<p><strong>Required county-level statistics:</strong> - Number of vulnerable tracts - Number of underserved tracts<br>
-- Percentage of vulnerable tracts that are underserved - Average distance to nearest hospital for vulnerable tracts - Total vulnerable population</p>
-<p><strong>Questions to answer:</strong> - Which 5 counties have the highest percentage of underserved vulnerable tracts?</p>
-<p>The counties with the highest percentage of underserved vulnerable tracts are Cameron, Monroe, Clearfield, Bradford, and Erie. Cameron and Monroe each have 100% of their vulnerable tracts classified as underserved, meaning all vulnerable tracts in those counties are located more than 15 miles from the nearest hospital. Clearfield follows with 60%, Bradford with 33.3%, and Erie with 10%.</p>
+<p><strong>Required county-level statistics:</strong></p>
 <ul>
-<li>Which counties have the most vulnerable people living far from hospitals?</li>
+<li>Number of vulnerable tracts</li>
+<li>Number of underserved tracts<br>
+</li>
+<li>Percentage of vulnerable tracts that are underserved</li>
+<li>Average distance to nearest hospital for vulnerable tracts</li>
+<li>Total vulnerable population</li>
 </ul>
-<p>The counties with the largest vulnerable populations living more than 15 miles from a hospital are Clearfield, Bradford, Cameron, Erie, and Monroe. Among these, Clearfield County has the highest underserved vulnerable population (8,313 people), followed by Bradford County (5,466). The remaining counties have smaller but still notable vulnerable populations living far from healthcare facilities.</p>
+<p><strong>Questions to answer:</strong></p>
+<p><strong>Which 5 counties have the highest percentage of underserved vulnerable tracts?</strong></p>
 <ul>
-<li>Are there any patterns in where underserved counties are located?</li>
+<li>The counties with the highest percentage of underserved vulnerable tracts are Cameron, Monroe, Clearfield, Bradford, and Erie. Cameron and Monroe each have 100% of their vulnerable tracts classified as underserved, meaning all vulnerable tracts in those counties are located more than 15 miles from the nearest hospital. Clearfield follows with 60%, Bradford with 33.3%, and Erie with 10%.</li>
 </ul>
-<p>There appears to be a clear geographic pattern in the distribution of underserved counties. Most of the counties identified, including Cameron, Clearfield, and Bradford, are located in rural or sparsely populated regions of northern and central Pennsylvania. These areas tend to have lower population density and fewer healthcare facilities, which increases travel distance to hospitals. In contrast, more urban counties such as Allegheny do not show high levels of underserved vulnerable tracts, likely due to greater healthcare infrastructure and hospital availability.</p>
+<p><strong>Which counties have the most vulnerable people living far from hospitals?</strong></p>
+<ul>
+<li>The counties with the largest vulnerable populations living more than 15 miles from a hospital are Clearfield, Bradford, Cameron, Erie, and Monroe. Among these, Clearfield County has the highest underserved vulnerable population (8,313 people), followed by Bradford County (5,466). The remaining counties have smaller but still notable vulnerable populations living far from healthcare facilities.</li>
+</ul>
+<p><strong>Are there any patterns in where underserved counties are located?</strong></p>
+<ul>
+<li>There appears to be a clear geographic pattern in the distribution of underserved counties. Most of the counties identified, including Cameron, Clearfield, and Bradford, are located in rural or sparsely populated regions of northern and central Pennsylvania. These areas tend to have lower population density and fewer healthcare facilities, which increases travel distance to hospitals. In contrast, more urban counties such as Allegheny do not show high levels of underserved vulnerable tracts, likely due to greater healthcare infrastructure and hospital availability.</li>
+</ul>
 <hr>
 </section>
 <section id="step-7-create-summary-table" class="level4">
@@ -4771,8 +4817,16 @@ vertical-align: -.125em;
 </div>
 </div>
 <p>I ranked counties using a priority score based on the total vulnerable population multiplied by the share of vulnerable tracts that are underserved (defined as more than 15 miles from the nearest hospital). Although the table shows the top ten counties, only the first five have positive priority scores because they contain underserved vulnerable tracts under this definition. The remaining counties appear due to the requirement to list ten counties, but they do not have underserved tracts. Overall, this suggests that geographic barriers to hospital access are concentrated in a relatively small number of Pennsylvania counties rather than being widespread across the state.</p>
-<p><strong>Requirements:</strong> - Use <code>knitr::kable()</code> or similar for formatting - Include descriptive column names - Format numbers appropriately (commas for population, percentages, etc.) - Add an informative caption - Sort by priority (you decide the metric)</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>Use <code>knitr::kable()</code> or similar for formatting</li>
+<li>Include descriptive column names</li>
+<li>Format numbers appropriately (commas for population, percentages, etc.)</li>
+<li>Add an informative caption</li>
+<li>Sort by priority (you decide the metric)</li>
+</ul>
 <hr>
+</section>
 </section>
 </section>
 <section id="part-2-comprehensive-visualization" class="level2">
@@ -4835,7 +4889,15 @@ vertical-align: -.125em;
 </div>
 </div>
 <p>The choropleth map highlights county-level variation in healthcare access by showing the share of vulnerable census tracts that are underserved (defined as more than 15 miles from the nearest hospital). Most counties have low or zero underserved shares, indicating relatively good geographic access to hospitals. However, a small number of counties, particularly Clearfield, Bradford, Cameron, and Monroe, show elevated underserved rates, suggesting localized access challenges. Hospital locations are heavily clustered in urban areas, which helps explain why underserved tracts are more concentrated in rural counties.</p>
-<p><strong>Requirements:</strong> - Fill counties by percentage of vulnerable tracts that are underserved - Include hospital locations as points - Use an appropriate color scheme - Include clear title, subtitle, and caption - Use <code>theme_void()</code> or similar clean theme - Add a legend with formatted labels</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>Fill counties by percentage of vulnerable tracts that are underserved</li>
+<li>Include hospital locations as points</li>
+<li>Use an appropriate color scheme</li>
+<li>Include clear title, subtitle, and caption</li>
+<li>Use <code>theme_void()</code> or similar clean theme</li>
+<li>Add a legend with formatted labels</li>
+</ul>
 <hr>
 </section>
 <section id="map-2-detailed-vulnerability-map" class="level3">
@@ -4900,7 +4962,14 @@ vertical-align: -.125em;
 </div>
 </div>
 <p>This map highlights vulnerable census tracts that are also geographically underserved, defined as being more than 15 miles from the nearest hospital. Most underserved tracts appear in rural parts of Pennsylvania, particularly in north-central and western counties, where hospital density is lower and travel distances are greater. In contrast, urban regions show dense hospital clustering and few underserved tracts. Overall, the map suggests that healthcare access disparities are driven largely by geographic isolation rather than a lack of vulnerable populations statewide.</p>
-<p><strong>Requirements:</strong> - Show underserved vulnerable tracts in a contrasting color - Include county boundaries for context - Show hospital locations - Use appropriate visual hierarchy (what should stand out?) - Include informative title and subtitle</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>Show underserved vulnerable tracts in a contrasting color</li>
+<li>Include county boundaries for context</li>
+<li>Show hospital locations</li>
+<li>Use appropriate visual hierarchy (what should stand out?)</li>
+<li>Include informative title and subtitle</li>
+</ul>
 <hr>
 </section>
 <section id="chart-distribution-analysis" class="level3">
@@ -4952,8 +5021,20 @@ vertical-align: -.125em;
 </div>
 </div>
 <p>The distribution shows that most vulnerable tracts are located relatively close to hospitals, with distances clustering below 10 miles. However, a small tail of tracts exceeds the 15-mile threshold, indicating localized geographic access challenges that disproportionately affect rural vulnerable populations.</p>
-<p><strong>Suggested chart types:</strong> - Histogram or density plot of distances - Box plot comparing distances across regions - Bar chart of underserved tracts by county - Scatter plot of distance vs. vulnerable population size</p>
-<p><strong>Requirements:</strong> - Clear axes labels with units - Appropriate title - Professional formatting - Brief interpretation (1-2 sentences as a caption or in text)</p>
+<p><strong>Suggested chart types:</strong></p>
+<ul>
+<li>Histogram or density plot of distances</li>
+<li>Box plot comparing distances across regions</li>
+<li>Bar chart of underserved tracts by county</li>
+<li>Scatter plot of distance vs. vulnerable population size</li>
+</ul>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>Clear axes labels with units</li>
+<li>Appropriate title</li>
+<li>Professional formatting</li>
+<li>Brief interpretation (1-2 sentences as a caption or in text)</li>
+</ul>
 <hr>
 </section>
 </section>
@@ -5084,14 +5165,22 @@ vertical-align: -.125em;
 <li><strong>Pose a research question</strong></li>
 </ol>
 <p>Write a clear research statement that your analysis will answer.</p>
-<p>Are vulnerable census tracts with poor hospital access also underserved by recreation and community program sites in Philadelphia?</p>
+<p><strong>Are vulnerable census tracts with poor hospital access also underserved by recreation and community program sites in Philadelphia?</strong></p>
 <p><strong>Examples:</strong> - “Do vulnerable tracts have adequate public transit access to hospitals?” - “Are EMS stations appropriately located near vulnerable populations?” - “Do areas with low vehicle access have worse hospital access?”</p>
 <hr>
 <ol start="3" type="1">
 <li><strong>Conduct spatial analysis</strong></li>
 </ol>
 <p>Use at least TWO spatial operations to answer your research question.</p>
-<p><strong>Required operations (choose 2+):</strong> - Buffers - Spatial joins - Spatial filtering with predicates - Distance calculations - Intersections or unions - Point-in-polygon aggregation</p>
+<p><strong>Required operations (choose 2+):</strong></p>
+<ul>
+<li>Buffers</li>
+<li>Spatial joins</li>
+<li>Spatial filtering with predicates</li>
+<li>Distance calculations</li>
+<li>Intersections or unions</li>
+<li>Point-in-polygon aggregation</li>
+</ul>
 <p><strong>Your Task:</strong></p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(sf)</span>
@@ -5251,7 +5340,14 @@ vertical-align: -.125em;
 </div>
 </div>
 </div>
-<p><strong>Analysis requirements:</strong> - Clear code comments explaining each step - Appropriate CRS transformations - Summary statistics or counts - At least one map showing your findings - Brief interpretation of results (3-5 sentences)</p>
+<p><strong>Analysis requirements:</strong></p>
+<ul>
+<li>Clear code comments explaining each step</li>
+<li>Appropriate CRS transformations</li>
+<li>Summary statistics or counts</li>
+<li>At least one map showing your findings</li>
+<li>Brief interpretation of results (3-5 sentences)</li>
+</ul>
 <p><strong>Your interpretation:</strong></p>
 <p>To assess access to recreational resources, I created a 0.5-mile walking buffer around Parks &amp; Recreation Program (PPR) sites and examined which vulnerable census tracts intersected these buffers. The results show that most vulnerable tracts have nearby access: 55 out of 59 tracts (93.22%) fall within walking distance, while 4 tracts (6.78%) do not.</p>
 <p>The spatial pattern suggests that PPR sites are fairly well distributed across Philadelphia, providing broad coverage for vulnerable populations. At the same time, the small number of tracts without access appear geographically concentrated, indicating localized gaps where residents may face reduced opportunities for nearby recreation. Overall, the analysis points to generally strong accessibility but highlights specific areas where additional facilities or targeted investment could improve equity in access.</p>

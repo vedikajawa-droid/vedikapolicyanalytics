@@ -18,6 +18,7 @@ execute:
 ## Assignment Overview
 
 **Learning Objectives:**
+
 - Apply spatial operations to answer policy-relevant research questions
 - Integrate census demographic data with spatial analysis
 - Create publication-quality visualizations and maps
@@ -41,6 +42,7 @@ Complete the following analysis, documenting each step with code and brief expla
 #### Step 1: Data Collection (5 points)
 
 Load the required spatial data:
+
 - Pennsylvania county boundaries
 - Pennsylvania hospitals (from lecture data)
 - Pennsylvania census tracts
@@ -87,17 +89,19 @@ kable(data_summary, caption = "Loaded spatial datasets (Lab 2, Step 1)")
 ```
 
 **Questions to answer:**
-- How many hospitals are in your dataset?
 
-223 hospitals
+**How many hospitals are in your dataset?**
 
-- How many census tracts?
+- 223 hospitals
 
-3,446 census tracts
+**How many census tracts?**
 
-- What coordinate reference system is each dataset in?
+- 3,446 census tracts
 
-Eeach dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).
+**What coordinate reference system is each dataset in?**
+
+- Each dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).
+
 ---
 
 #### Step 2: Get Demographic Data 
@@ -105,6 +109,7 @@ Eeach dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).
 Use `tidycensus` to download tract-level demographic data for Pennsylvania.
 
 **Required variables:**
+
 - Total population
 - Median household income
 - Population 65 years and over (you may need to sum multiple age categories)
@@ -174,39 +179,40 @@ missing_income_tracts <- sum(is.na(acs_wide$med_hh_income))
 median_income_pa <- median(acs_wide$med_hh_income, na.rm = TRUE)
 
 answers_step2 <- data.frame(
-  question = c(
+  Question = c(
     "ACS year used",
     "Tracts with missing income data",
     "Median income across all PA census tracts"
   ),
-  answer = c(
+  Answer = c(
     paste0(acs_year, " (ACS 5-year, acs5)"),
     missing_income_tracts,
     round(median_income_pa, 0)
   )
 )
 
-kable(answers_step2, caption = "Step 2 answers")
+kable(answers_step2, caption = "Step 2 Answers")
 ```
 
 **Questions to answer:**
-- What year of ACS data are you using?
+**What year of ACS data are you using?**
 
-2022 American Community Survey (ACS) 5-year estimates
+- 2022 American Community Survey (ACS) 5-year estimates
 
-- How many tracts have missing income data?
+**How many tracts have missing income data?**
 
-63 census tracts
+- 63 census tracts
 
-- What is the median income across all PA census tracts?
+**What is the median income across all PA census tracts?**
 
-$70,188
+- $70,188
 
 ---
 
 #### Step 3: Define Vulnerable Populations 
 
 Identify census tracts with vulnerable populations based on TWO criteria:
+
 1. Low median household income (choose an appropriate threshold)
 2. Significant elderly population (choose an appropriate threshold)
 
@@ -251,13 +257,13 @@ n_total_tracts <- nrow(pa_tracts_vuln)
 pct_vulnerable <- 100 * n_vulnerable / n_total_tracts
 
 vuln_summary <- data.frame(
-  metric = c(
+  Metric = c(
     "Income threshold (bottom 25% cutoff)",
     "Elderly share threshold",
     "Number of vulnerable tracts",
     "Percent of PA tracts vulnerable"
   ),
-  value = c(
+  Value = c(
     round(income_threshold, 0),
     paste0(elderly_share_threshold * 100, "% (65+ share)"),
     n_vulnerable,
@@ -265,25 +271,25 @@ vuln_summary <- data.frame(
   )
 )
 
-kable(vuln_summary, caption = "Vulnerability definition and results")
+kable(vuln_summary, caption = "Vulnerability Definition and Results")
 ```
 
 **Questions to answer:**
-- What income threshold did you choose and why?
+**What income threshold did you choose and why?**
 
-I defined “low income” as census tracts in the bottom quartile (25th percentile) of tract median household income in Pennsylvania. This corresponds to an income cutoff of $55,924. Using a percentile-based threshold is appropriate because it is state-specific and distribution-aware, and it targets the tracts that are most economically disadvantaged relative to other tracts in PA.
+- I defined “low income” as census tracts in the bottom quartile (25th percentile) of tract median household income in Pennsylvania. This corresponds to an income cutoff of $55,924. Using a percentile-based threshold is appropriate because it is state-specific and distribution-aware, and it targets the tracts that are most economically disadvantaged relative to other tracts in PA.
 
-- What elderly population threshold did you choose and why?
+**What elderly population threshold did you choose and why?**
 
-I defined a “significant elderly population” as tracts where at least 15% of residents are age 65+. This threshold flags tracts with a meaningfully high concentration of older residents, who tend to have greater healthcare needs and may face mobility/access constraints, making geographic access to hospitals more consequential.
+- I defined a “significant elderly population” as tracts where at least 15% of residents are age 65+. This threshold flags tracts with a meaningfully high concentration of older residents, who tend to have greater healthcare needs and may face mobility/access constraints, making geographic access to hospitals more consequential.
 
-- How many tracts meet your vulnerability criteria?
+**How many tracts meet your vulnerability criteria?**
 
-Using these two criteria jointly (income ≤ $55,924 and 65+ share ≥ 15%), 473 census tracts meet the vulnerability definition.
+- Using these two criteria jointly (income ≤ $55,924 and 65+ share ≥ 15%), 473 census tracts meet the vulnerability definition.
 
-- What percentage of PA census tracts are considered vulnerable by your definition?
+**What percentage of PA census tracts are considered vulnerable by your definition?**
 
-Under this definition, 13.73% of Pennsylvania census tracts are classified as vulnerable.
+- Under this definition, 13.73% of Pennsylvania census tracts are classified as vulnerable.
 
 ---
 
@@ -338,40 +344,43 @@ max_dist <- max(vuln_with_dist$dist_to_hosp_miles, na.rm = TRUE)
 n_over_15 <- sum(vuln_with_dist$dist_to_hosp_miles > 15, na.rm = TRUE)
 
 dist_summary <- data.frame(
-  metric = c(
+  Metric = c(
     "Average distance to nearest hospital (miles)",
     "Maximum distance to nearest hospital (miles)",
     "Vulnerable tracts > 15 miles from nearest hospital"
   ),
-  value = c(
+  Value = c(
     round(avg_dist, 2),
     round(max_dist, 2),
     n_over_15
   )
 )
 
-kable(dist_summary, caption = "Distance to nearest hospital (vulnerable tracts)")
+kable(dist_summary, caption = "Distance to Nearest Hospital (vulnerable tracts)")
 ```
 
+I calculated distances using NAD83 / UTM Zone 18N (EPSG:26918) because it is a projected coordinate system that measures distance in meters rather than degrees. Since Pennsylvania falls largely within UTM Zone 18N, this projection minimizes distortion across the state and produces more accurate tract-to-hospital distance estimates than a geographic CRS.
+
 **Requirements:**
+
 - Use an appropriate projected coordinate system for Pennsylvania
 - Calculate distances in miles
 - Explain why you chose your projection
 
-I calculated distances using NAD83 / UTM Zone 18N (EPSG:26918) because it is a projected coordinate system that measures distance in meters rather than degrees. Since Pennsylvania falls largely within UTM Zone 18N, this projection minimizes distortion across the state and produces more accurate tract-to-hospital distance estimates than a geographic CRS.
 
 **Questions to answer:**
-- What is the average distance to the nearest hospital for vulnerable tracts?
 
-On average, vulnerable census tracts are located 4.05 miles from the nearest hospital.
+**What is the average distance to the nearest hospital for vulnerable tracts?**
 
-- What is the maximum distance?
+- On average, vulnerable census tracts are located 4.05 miles from the nearest hospital.
 
-The maximum distance to the nearest hospital among vulnerable tracts is 25.64 miles.
+**What is the maximum distance?**
 
-- How many vulnerable tracts are more than 15 miles from the nearest hospital?
+- The maximum distance to the nearest hospital among vulnerable tracts is 25.64 miles.
 
-21 vulnerable census tracts are located more than 15 miles from the nearest hospital.
+**How many vulnerable tracts are more than 15 miles from the nearest hospital?**
+
+- 21 vulnerable census tracts are located more than 15 miles from the nearest hospital.
 
 ---
 
@@ -411,34 +420,35 @@ n_vulnerable_total <- nrow(vuln_with_dist)
 pct_vulnerable_underserved <- 100 * n_underserved / n_vulnerable_total
 
 underserved_summary <- data.frame(
-  metric = c(
+  Metric = c(
     "Underserved threshold (miles)",
     "Number of underserved tracts",
     "Percent of vulnerable tracts underserved"
   ),
-  value = c(
+  Value = c(
     underserved_threshold,
     n_underserved,
     paste0(round(pct_vulnerable_underserved, 2), "%")
   )
 )
 
-kable(underserved_summary, caption = "Underserved tracts summary")
+kable(underserved_summary, caption = "Underserved Tracts Summary")
 ```
 
 
 **Questions to answer:**
-- How many tracts are underserved?
 
-21 census tracts.
+**How many tracts are underserved?**
 
-- What percentage of vulnerable tracts are underserved?
+- 21 census tracts.
 
-4.44% of all vulnerable census tracts.
+**What percentage of vulnerable tracts are underserved?**
 
-- Does this surprise you? Why or why not?
+- 4.44% of all vulnerable census tracts.
 
-I am somewhat not surprised. While Pennsylvania contains large rural areas where hospitals are relatively sparse, the state overall has a fairly dense healthcare infrastructure, especially in urban and suburban regions. As a result, only a small share of vulnerable tracts are located far from hospitals. However, the existence of even a small number of underserved tracts is important, as these communities may face meaningful geographic barriers to care and could benefit from targeted policy interventions.
+**Does this surprise you? Why or why not?**
+
+- I am somewhat not surprised. While Pennsylvania contains large rural areas where hospitals are relatively sparse, the state overall has a fairly dense healthcare infrastructure, especially in urban and suburban regions. As a result, only a small share of vulnerable tracts are located far from hospitals. However, the existence of even a small number of underserved tracts is important, as these communities may face meaningful geographic barriers to care and could benefit from targeted policy interventions.
 
 ---
 
@@ -504,7 +514,6 @@ kable(
 )
 ```
 
-
 ```{r}
 #| message: false
 #| warning: false
@@ -529,6 +538,7 @@ kable(
 ```
 
 **Required county-level statistics:**
+
 - Number of vulnerable tracts
 - Number of underserved tracts  
 - Percentage of vulnerable tracts that are underserved
@@ -536,17 +546,18 @@ kable(
 - Total vulnerable population
 
 **Questions to answer:**
-- Which 5 counties have the highest percentage of underserved vulnerable tracts?
 
-The counties with the highest percentage of underserved vulnerable tracts are Cameron, Monroe, Clearfield, Bradford, and Erie. Cameron and Monroe each have 100% of their vulnerable tracts classified as underserved, meaning all vulnerable tracts in those counties are located more than 15 miles from the nearest hospital. Clearfield follows with 60%, Bradford with 33.3%, and Erie with 10%.
+**Which 5 counties have the highest percentage of underserved vulnerable tracts?**
 
-- Which counties have the most vulnerable people living far from hospitals?
+- The counties with the highest percentage of underserved vulnerable tracts are Cameron, Monroe, Clearfield, Bradford, and Erie. Cameron and Monroe each have 100% of their vulnerable tracts classified as underserved, meaning all vulnerable tracts in those counties are located more than 15 miles from the nearest hospital. Clearfield follows with 60%, Bradford with 33.3%, and Erie with 10%.
 
-The counties with the largest vulnerable populations living more than 15 miles from a hospital are Clearfield, Bradford, Cameron, Erie, and Monroe. Among these, Clearfield County has the highest underserved vulnerable population (8,313 people), followed by Bradford County (5,466). The remaining counties have smaller but still notable vulnerable populations living far from healthcare facilities.
+**Which counties have the most vulnerable people living far from hospitals?**
 
-- Are there any patterns in where underserved counties are located?
+- The counties with the largest vulnerable populations living more than 15 miles from a hospital are Clearfield, Bradford, Cameron, Erie, and Monroe. Among these, Clearfield County has the highest underserved vulnerable population (8,313 people), followed by Bradford County (5,466). The remaining counties have smaller but still notable vulnerable populations living far from healthcare facilities.
 
-There appears to be a clear geographic pattern in the distribution of underserved counties. Most of the counties identified, including Cameron, Clearfield, and Bradford, are located in rural or sparsely populated regions of northern and central Pennsylvania. These areas tend to have lower population density and fewer healthcare facilities, which increases travel distance to hospitals. In contrast, more urban counties such as Allegheny do not show high levels of underserved vulnerable tracts, likely due to greater healthcare infrastructure and hospital availability.
+**Are there any patterns in where underserved counties are located?**
+
+- There appears to be a clear geographic pattern in the distribution of underserved counties. Most of the counties identified, including Cameron, Clearfield, and Bradford, are located in rural or sparsely populated regions of northern and central Pennsylvania. These areas tend to have lower population density and fewer healthcare facilities, which increases travel distance to hospitals. In contrast, more urban counties such as Allegheny do not show high levels of underserved vulnerable tracts, likely due to greater healthcare infrastructure and hospital availability.
 
 ---
 
@@ -590,6 +601,7 @@ kable(
 I ranked counties using a priority score based on the total vulnerable population multiplied by the share of vulnerable tracts that are underserved (defined as more than 15 miles from the nearest hospital). Although the table shows the top ten counties, only the first five have positive priority scores because they contain underserved vulnerable tracts under this definition. The remaining counties appear due to the requirement to list ten counties, but they do not have underserved tracts. Overall, this suggests that geographic barriers to hospital access are concentrated in a relatively small number of Pennsylvania counties rather than being widespread across the state.
 
 **Requirements:**
+
 - Use `knitr::kable()` or similar for formatting
 - Include descriptive column names
 - Format numbers appropriately (commas for population, percentages, etc.)
@@ -658,6 +670,7 @@ ggplot() +
 The choropleth map highlights county-level variation in healthcare access by showing the share of vulnerable census tracts that are underserved (defined as more than 15 miles from the nearest hospital). Most counties have low or zero underserved shares, indicating relatively good geographic access to hospitals. However, a small number of counties, particularly Clearfield, Bradford, Cameron, and Monroe, show elevated underserved rates, suggesting localized access challenges. Hospital locations are heavily clustered in urban areas, which helps explain why underserved tracts are more concentrated in rural counties.
 
 **Requirements:**
+
 - Fill counties by percentage of vulnerable tracts that are underserved
 - Include hospital locations as points
 - Use an appropriate color scheme
@@ -728,6 +741,7 @@ ggplot() +
 This map highlights vulnerable census tracts that are also geographically underserved, defined as being more than 15 miles from the nearest hospital. Most underserved tracts appear in rural parts of Pennsylvania, particularly in north-central and western counties, where hospital density is lower and travel distances are greater. In contrast, urban regions show dense hospital clustering and few underserved tracts. Overall, the map suggests that healthcare access disparities are driven largely by geographic isolation rather than a lack of vulnerable populations statewide.
 
 **Requirements:**
+
 - Show underserved vulnerable tracts in a contrasting color
 - Include county boundaries for context
 - Show hospital locations
@@ -787,12 +801,14 @@ ggplot(vuln_with_dist, aes(x = dist_to_hosp_miles)) +
 The distribution shows that most vulnerable tracts are located relatively close to hospitals, with distances clustering below 10 miles. However, a small tail of tracts exceeds the 15-mile threshold, indicating localized geographic access challenges that disproportionately affect rural vulnerable populations.
 
 **Suggested chart types:**
+
 - Histogram or density plot of distances
 - Box plot comparing distances across regions
 - Bar chart of underserved tracts by county
 - Scatter plot of distance vs. vulnerable population size
 
 **Requirements:**
+
 - Clear axes labels with units
 - Appropriate title
 - Professional formatting
@@ -963,7 +979,7 @@ The dataset is stored in EPSG:3857 (Web Mercator). To ensure consistency with th
 
 Write a clear research statement that your analysis will answer.
 
-Are vulnerable census tracts with poor hospital access also underserved by recreation and community program sites in Philadelphia?
+**Are vulnerable census tracts with poor hospital access also underserved by recreation and community program sites in Philadelphia?**
 
 **Examples:**
 - "Do vulnerable tracts have adequate public transit access to hospitals?"
@@ -977,6 +993,7 @@ Are vulnerable census tracts with poor hospital access also underserved by recre
 Use at least TWO spatial operations to answer your research question.
 
 **Required operations (choose 2+):**
+
 - Buffers
 - Spatial joins
 - Spatial filtering with predicates
@@ -1105,6 +1122,7 @@ ggplot() +
 ```
 
 **Analysis requirements:**
+
 - Clear code comments explaining each step
 - Appropriate CRS transformations
 - Summary statistics or counts

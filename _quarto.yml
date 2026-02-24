@@ -16,7 +16,7 @@ website:
           - href: labs/lab_1/           # ADD NEW LABS HERE
             text: "Lab 1: [Lab Title]"
           - href: labs/lab_2/lab2_template.qmd
-            text: "Lab 2: [Lab Title]"
+            text: "Lab 2: Spatial Analysis and Visualization"
 
 format:
   html:
