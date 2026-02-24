@@ -4,10 +4,19 @@ project:
 
 website:
   title: "Vedika Jawa - MUSA 5080 Portfolio"
+        
   navbar:
     left:
       - href: index.qmd
         text: Home
+      - text: Labs
+        menu:
+          - href: labs/lab_0/
+            text: "Lab 0: dplyr Basics"
+          - href: labs/lab_1/           # ADD NEW LABS HERE
+            text: "Lab 1: [Lab Title]"
+          - href: labs/lab_2/lab2_template.qmd
+            text: "Lab 2: [Lab Title]"
 
 format:
   html:

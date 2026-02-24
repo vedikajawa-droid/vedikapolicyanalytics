@@ -1,0 +1,1139 @@
+---
+title: "Lab 2: Spatial Analysis and Visualization"
+subtitle: "Healthcare Access and Equity in Pennsylvania"
+author: "Your Name Here"
+date: today
+format: 
+  html:
+    code-fold: false
+    toc: true
+    toc-location: left
+    theme: cosmo
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## Assignment Overview
+
+**Learning Objectives:**
+- Apply spatial operations to answer policy-relevant research questions
+- Integrate census demographic data with spatial analysis
+- Create publication-quality visualizations and maps
+- Work with spatial data from multiple sources
+- Communicate findings effectively for policy audiences
+
+---
+
+## Part 1: Healthcare Access for Vulnerable Populations
+
+### Research Question
+
+**Which Pennsylvania counties have the highest proportion of vulnerable populations (elderly + low-income) living far from hospitals?**
+
+Your analysis should identify counties that should be priorities for healthcare investment and policy intervention.
+
+### Required Analysis Steps
+
+Complete the following analysis, documenting each step with code and brief explanations:
+
+#### Step 1: Data Collection (5 points)
+
+Load the required spatial data:
+- Pennsylvania county boundaries
+- Pennsylvania hospitals (from lecture data)
+- Pennsylvania census tracts
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+# Load required packages
+library(sf)
+library(dplyr)
+library(tigris)
+library(knitr)
+
+# Load spatial data
+data_dir <- path.expand("~/Downloads")
+
+counties  <- st_read(file.path(data_dir, "Pennsylvania_County_Boundaries"))
+hospitals <- st_read(file.path(data_dir, "hospitals.geojson"))
+districts <- st_read(file.path(data_dir, "districts.geojson"))
+
+pa_tracts <- tracts(state = "PA", year = 2022, class = "sf")
+
+hospitals <- st_transform(hospitals, st_crs(counties))
+districts <- st_transform(districts, st_crs(counties))
+pa_tracts  <- st_transform(pa_tracts,  st_crs(counties))
+
+# Check that all data loaded correctly
+data_summary <- data.frame(
+  dataset = c("Counties", "Hospitals", "Districts", "Census tracts"),
+  features = c(nrow(counties), nrow(hospitals), nrow(districts), nrow(pa_tracts)),
+  geometry_type = c(
+    paste(unique(st_geometry_type(counties)), collapse = ", "),
+    paste(unique(st_geometry_type(hospitals)), collapse = ", "),
+    paste(unique(st_geometry_type(districts)), collapse = ", "),
+    paste(unique(st_geometry_type(pa_tracts)), collapse = ", ")
+  ),
+  crs_epsg = c(st_crs(counties)$epsg, st_crs(hospitals)$epsg, st_crs(districts)$epsg, st_crs(pa_tracts)$epsg)
+)
+
+kable(data_summary, caption = "Loaded spatial datasets (Lab 2, Step 1)")
+```
+
+**Questions to answer:**
+- How many hospitals are in your dataset?
+
+223 hospitals
+
+- How many census tracts?
+
+3,446 census tracts
+
+- What coordinate reference system is each dataset in?
+
+Eeach dataset is in EPSG:3857 (WGS 84 / Pseudo-Mercator).
+---
+
+#### Step 2: Get Demographic Data 
+
+Use `tidycensus` to download tract-level demographic data for Pennsylvania.
+
+**Required variables:**
+- Total population
+- Median household income
+- Population 65 years and over (you may need to sum multiple age categories)
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+library(tidycensus)
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+# Get demographic data from ACS
+vars <- c(
+  total_pop = "B01003_001",
+  med_hh_income = "B19013_001",
+  # 65+ by sex (sum these)
+  m_65_66 = "B01001_020",
+  m_67_69 = "B01001_021",
+  m_70_74 = "B01001_022",
+  m_75_79 = "B01001_023",
+  m_80_84 = "B01001_024",
+  m_85_up = "B01001_025",
+  f_65_66 = "B01001_044",
+  f_67_69 = "B01001_045",
+  f_70_74 = "B01001_046",
+  f_75_79 = "B01001_047",
+  f_80_84 = "B01001_048",
+  f_85_up = "B01001_049"
+)
+
+acs_long <- get_acs(
+  geography = "tract",
+  state = "PA",
+  year = 2022,
+  survey = "acs5",
+  variables = vars,
+  geometry = FALSE,
+  cache_table = TRUE
+)
+
+acs_wide <- acs_long %>%
+  select(GEOID, variable, estimate) %>%
+  tidyr::pivot_wider(names_from = variable, values_from = estimate) %>%
+  mutate(
+    pop_65_plus = m_65_66 + m_67_69 + m_70_74 + m_75_79 + m_80_84 + m_85_up +
+                  f_65_66 + f_67_69 + f_70_74 + f_75_79 + f_80_84 + f_85_up
+  ) %>%
+  select(GEOID, total_pop, med_hh_income, pop_65_plus)
+
+# Join to tract boundaries
+pa_tracts_demo <- pa_tracts %>%
+  left_join(acs_wide, by = "GEOID")
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+
+# Questions to answer (compute + show clean output)
+acs_year <- 2022
+missing_income_tracts <- sum(is.na(acs_wide$med_hh_income))
+median_income_pa <- median(acs_wide$med_hh_income, na.rm = TRUE)
+
+answers_step2 <- data.frame(
+  question = c(
+    "ACS year used",
+    "Tracts with missing income data",
+    "Median income across all PA census tracts"
+  ),
+  answer = c(
+    paste0(acs_year, " (ACS 5-year, acs5)"),
+    missing_income_tracts,
+    round(median_income_pa, 0)
+  )
+)
+
+kable(answers_step2, caption = "Step 2 answers")
+```
+
+**Questions to answer:**
+- What year of ACS data are you using?
+
+2022 American Community Survey (ACS) 5-year estimates
+
+- How many tracts have missing income data?
+
+63 census tracts
+
+- What is the median income across all PA census tracts?
+
+$70,188
+
+---
+
+#### Step 3: Define Vulnerable Populations 
+
+Identify census tracts with vulnerable populations based on TWO criteria:
+1. Low median household income (choose an appropriate threshold)
+2. Significant elderly population (choose an appropriate threshold)
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+# Filter for vulnerable tracts based on your criteria
+# Income: bottom 25% of tract median household income (statewide)
+income_threshold <- quantile(pa_tracts_demo$med_hh_income, 0.25, na.rm = TRUE)
+
+# Elderly: 65+ share >= 15% of tract population
+elderly_share_threshold <- 0.15
+
+# Create elderly share + vulnerability flag
+pa_tracts_vuln <- pa_tracts_demo %>%
+  mutate(
+    elderly_share = pop_65_plus / total_pop,
+    vulnerable = !is.na(med_hh_income) &
+      !is.na(total_pop) & total_pop > 0 &
+      (med_hh_income <= income_threshold) &
+      (elderly_share >= elderly_share_threshold)
+  )
+
+# Keep only vulnerable tracts
+vulnerable_tracts <- pa_tracts_vuln %>%
+  filter(vulnerable)
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+
+library(knitr)
+
+n_vulnerable <- nrow(vulnerable_tracts)
+n_total_tracts <- nrow(pa_tracts_vuln)
+
+pct_vulnerable <- 100 * n_vulnerable / n_total_tracts
+
+vuln_summary <- data.frame(
+  metric = c(
+    "Income threshold (bottom 25% cutoff)",
+    "Elderly share threshold",
+    "Number of vulnerable tracts",
+    "Percent of PA tracts vulnerable"
+  ),
+  value = c(
+    round(income_threshold, 0),
+    paste0(elderly_share_threshold * 100, "% (65+ share)"),
+    n_vulnerable,
+    paste0(round(pct_vulnerable, 2), "%")
+  )
+)
+
+kable(vuln_summary, caption = "Vulnerability definition and results")
+```
+
+**Questions to answer:**
+- What income threshold did you choose and why?
+
+I defined “low income” as census tracts in the bottom quartile (25th percentile) of tract median household income in Pennsylvania. This corresponds to an income cutoff of $55,924. Using a percentile-based threshold is appropriate because it is state-specific and distribution-aware, and it targets the tracts that are most economically disadvantaged relative to other tracts in PA.
+
+- What elderly population threshold did you choose and why?
+
+I defined a “significant elderly population” as tracts where at least 15% of residents are age 65+. This threshold flags tracts with a meaningfully high concentration of older residents, who tend to have greater healthcare needs and may face mobility/access constraints, making geographic access to hospitals more consequential.
+
+- How many tracts meet your vulnerability criteria?
+
+Using these two criteria jointly (income ≤ $55,924 and 65+ share ≥ 15%), 473 census tracts meet the vulnerability definition.
+
+- What percentage of PA census tracts are considered vulnerable by your definition?
+
+Under this definition, 13.73% of Pennsylvania census tracts are classified as vulnerable.
+
+---
+
+#### Step 4: Calculate Distance to Hospitals 
+
+For each vulnerable tract, calculate the distance to the nearest hospital.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+library(sf)
+library(dplyr)
+library(units)
+
+# Transform to appropriate projected CRS
+vuln_utm <- st_transform(vulnerable_tracts, 26918)
+hosp_utm <- st_transform(hospitals, 26918)
+
+# Calculate distance from each tract centroid to nearest hospital
+vuln_centroids <- st_centroid(vuln_utm)
+
+# Distance matrix (tract centroids x hospitals) in meters
+dist_m <- st_distance(vuln_centroids, hosp_utm)
+
+# Nearest hospital distance for each tract (min across hospitals)
+nearest_m <- apply(dist_m, 1, min)
+
+# Convert to miles
+nearest_miles <- set_units(nearest_m, "m") %>%
+  set_units("mi") %>%
+  drop_units()
+
+# Add distances back to the vulnerable tracts sf object
+vuln_with_dist <- vuln_utm %>%
+  mutate(
+    dist_to_hosp_miles = nearest_miles
+  )
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+
+library(knitr)
+
+avg_dist <- mean(vuln_with_dist$dist_to_hosp_miles, na.rm = TRUE)
+max_dist <- max(vuln_with_dist$dist_to_hosp_miles, na.rm = TRUE)
+n_over_15 <- sum(vuln_with_dist$dist_to_hosp_miles > 15, na.rm = TRUE)
+
+dist_summary <- data.frame(
+  metric = c(
+    "Average distance to nearest hospital (miles)",
+    "Maximum distance to nearest hospital (miles)",
+    "Vulnerable tracts > 15 miles from nearest hospital"
+  ),
+  value = c(
+    round(avg_dist, 2),
+    round(max_dist, 2),
+    n_over_15
+  )
+)
+
+kable(dist_summary, caption = "Distance to nearest hospital (vulnerable tracts)")
+```
+
+**Requirements:**
+- Use an appropriate projected coordinate system for Pennsylvania
+- Calculate distances in miles
+- Explain why you chose your projection
+
+I calculated distances using NAD83 / UTM Zone 18N (EPSG:26918) because it is a projected coordinate system that measures distance in meters rather than degrees. Since Pennsylvania falls largely within UTM Zone 18N, this projection minimizes distortion across the state and produces more accurate tract-to-hospital distance estimates than a geographic CRS.
+
+**Questions to answer:**
+- What is the average distance to the nearest hospital for vulnerable tracts?
+
+On average, vulnerable census tracts are located 4.05 miles from the nearest hospital.
+
+- What is the maximum distance?
+
+The maximum distance to the nearest hospital among vulnerable tracts is 25.64 miles.
+
+- How many vulnerable tracts are more than 15 miles from the nearest hospital?
+
+21 vulnerable census tracts are located more than 15 miles from the nearest hospital.
+
+---
+
+#### Step 5: Identify Underserved Areas 
+
+Define "underserved" as vulnerable tracts that are more than 15 miles from the nearest hospital.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+library(dplyr)
+
+# Create underserved variable
+underserved_threshold <- 15
+
+vuln_with_dist <- vuln_with_dist %>%
+  mutate(
+    underserved = dist_to_hosp_miles > underserved_threshold
+  )
+
+underserved_tracts <- vuln_with_dist %>%
+  filter(underserved)
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+library(knitr)
+
+n_underserved <- nrow(underserved_tracts)
+n_vulnerable_total <- nrow(vuln_with_dist)
+
+pct_vulnerable_underserved <- 100 * n_underserved / n_vulnerable_total
+
+underserved_summary <- data.frame(
+  metric = c(
+    "Underserved threshold (miles)",
+    "Number of underserved tracts",
+    "Percent of vulnerable tracts underserved"
+  ),
+  value = c(
+    underserved_threshold,
+    n_underserved,
+    paste0(round(pct_vulnerable_underserved, 2), "%")
+  )
+)
+
+kable(underserved_summary, caption = "Underserved tracts summary")
+```
+
+
+**Questions to answer:**
+- How many tracts are underserved?
+
+21 census tracts.
+
+- What percentage of vulnerable tracts are underserved?
+
+4.44% of all vulnerable census tracts.
+
+- Does this surprise you? Why or why not?
+
+I am somewhat not surprised. While Pennsylvania contains large rural areas where hospitals are relatively sparse, the state overall has a fairly dense healthcare infrastructure, especially in urban and suburban regions. As a result, only a small share of vulnerable tracts are located far from hospitals. However, the existence of even a small number of underserved tracts is important, as these communities may face meaningful geographic barriers to care and could benefit from targeted policy interventions.
+
+---
+
+#### Step 6: Aggregate to County Level
+
+Use spatial joins and aggregation to calculate county-level statistics about vulnerable populations and hospital access.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+library(sf)
+library(dplyr)
+library(knitr)
+
+# Spatial join tracts to counties
+counties_utm <- st_transform(counties, st_crs(vuln_with_dist))
+
+tracts_with_county <- st_join(
+  vuln_with_dist,
+  counties_utm,
+  join = st_within,
+  left = FALSE
+)
+
+# Aggregate statistics by county
+county_stats <- tracts_with_county %>%
+  st_drop_geometry() %>%
+  group_by(COUNTY_NAM) %>%
+  summarise(
+    vulnerable_tracts = n(),
+    underserved_tracts = sum(underserved, na.rm = TRUE),
+    pct_vulnerable_underserved = 100 * underserved_tracts / vulnerable_tracts,
+    avg_dist_to_hosp_miles = mean(dist_to_hosp_miles, na.rm = TRUE),
+    total_vulnerable_pop = sum(total_pop, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(county = COUNTY_NAM) %>%
+  arrange(desc(pct_vulnerable_underserved))
+
+kable(
+  head(county_stats, 10),
+  digits = 2,
+  caption = "Top 10 counties by percent underserved among vulnerable tracts"
+)
+
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+# Top 5 counties by % underserved vulnerable tracts
+top5_pct_underserved <- county_stats %>%
+  slice_max(pct_vulnerable_underserved, n = 5)
+
+kable(
+  top5_pct_underserved,
+  digits = 2,
+  caption = "Top 5 counties: highest % underserved among vulnerable tracts"
+)
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+
+# Counties with the most vulnerable people living far from hospitals (>15 miles)
+far_pop_by_county <- tracts_with_county %>%
+  filter(underserved) %>%
+  st_drop_geometry() %>%
+  group_by(COUNTY_NAM) %>%
+  summarise(
+    underserved_vulnerable_pop = sum(total_pop, na.rm = TRUE),
+    underserved_tracts = n(),
+    .groups = "drop"
+  ) %>%
+  rename(county = COUNTY_NAM) %>%
+  arrange(desc(underserved_vulnerable_pop))
+
+kable(
+  head(far_pop_by_county, 10),
+  caption = "Counties with most vulnerable people in underserved tracts (>15 miles)"
+)
+```
+
+**Required county-level statistics:**
+- Number of vulnerable tracts
+- Number of underserved tracts  
+- Percentage of vulnerable tracts that are underserved
+- Average distance to nearest hospital for vulnerable tracts
+- Total vulnerable population
+
+**Questions to answer:**
+- Which 5 counties have the highest percentage of underserved vulnerable tracts?
+
+The counties with the highest percentage of underserved vulnerable tracts are Cameron, Monroe, Clearfield, Bradford, and Erie. Cameron and Monroe each have 100% of their vulnerable tracts classified as underserved, meaning all vulnerable tracts in those counties are located more than 15 miles from the nearest hospital. Clearfield follows with 60%, Bradford with 33.3%, and Erie with 10%.
+
+- Which counties have the most vulnerable people living far from hospitals?
+
+The counties with the largest vulnerable populations living more than 15 miles from a hospital are Clearfield, Bradford, Cameron, Erie, and Monroe. Among these, Clearfield County has the highest underserved vulnerable population (8,313 people), followed by Bradford County (5,466). The remaining counties have smaller but still notable vulnerable populations living far from healthcare facilities.
+
+- Are there any patterns in where underserved counties are located?
+
+There appears to be a clear geographic pattern in the distribution of underserved counties. Most of the counties identified, including Cameron, Clearfield, and Bradford, are located in rural or sparsely populated regions of northern and central Pennsylvania. These areas tend to have lower population density and fewer healthcare facilities, which increases travel distance to hospitals. In contrast, more urban counties such as Allegheny do not show high levels of underserved vulnerable tracts, likely due to greater healthcare infrastructure and hospital availability.
+
+---
+
+#### Step 7: Create Summary Table 
+
+Create a professional table showing the top 10 priority counties for healthcare investment.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+
+library(dplyr)
+library(knitr)
+library(scales)
+
+# Create and format priority counties table
+priority_counties <- county_stats %>%
+  mutate(
+    priority_score = total_vulnerable_pop * (pct_vulnerable_underserved / 100)
+  ) %>%
+  arrange(desc(priority_score)) %>%
+  slice_head(n = 10) %>%
+  transmute(
+    County = county,
+    `Vulnerable tracts` = vulnerable_tracts,
+    `Underserved tracts` = underserved_tracts,
+    `% vulnerable underserved` = percent(pct_vulnerable_underserved / 100, accuracy = 0.1),
+    `Avg distance to hospital (miles)` = round(avg_dist_to_hosp_miles, 2),
+    `Total vulnerable population` = comma(total_vulnerable_pop),
+    `Priority score` = comma(round(priority_score))
+  )
+
+kable(
+  priority_counties,
+  caption = "Top 10 counties ranked by priority score for healthcare investment",
+  align = "lcccccc"
+)
+```
+
+I ranked counties using a priority score based on the total vulnerable population multiplied by the share of vulnerable tracts that are underserved (defined as more than 15 miles from the nearest hospital). Although the table shows the top ten counties, only the first five have positive priority scores because they contain underserved vulnerable tracts under this definition. The remaining counties appear due to the requirement to list ten counties, but they do not have underserved tracts. Overall, this suggests that geographic barriers to hospital access are concentrated in a relatively small number of Pennsylvania counties rather than being widespread across the state.
+
+**Requirements:**
+- Use `knitr::kable()` or similar for formatting
+- Include descriptive column names
+- Format numbers appropriately (commas for population, percentages, etc.)
+- Add an informative caption
+- Sort by priority (you decide the metric)
+
+---
+
+## Part 2: Comprehensive Visualization 
+
+Using the skills from Week 3 (Data Visualization), create publication-quality maps and charts.
+
+### Map 1: County-Level Choropleth 
+
+Create a choropleth map showing healthcare access challenges at the county level.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+# Create county-level access map
+counties_map <- counties_utm %>%
+  left_join(county_stats, by = c("COUNTY_NAM" = "county"))
+
+hosp_map <- st_transform(hospitals, st_crs(counties_map))
+
+ggplot() +
+  geom_sf(
+    data = counties_map,
+    aes(fill = pct_vulnerable_underserved),
+    color = "white",
+    linewidth = 0.2
+  ) +
+  geom_sf(
+    data = hosp_map,
+    color = "black",
+    size = 0.8,
+    alpha = 0.7
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    direction = 1,
+    name = "% vulnerable tracts\nunderserved",
+    labels = function(x) paste0(round(x, 1), "%")
+  ) +
+  labs(
+    title = "Healthcare Access Challenges in Pennsylvania",
+    subtitle = "County-level share of vulnerable census tracts that are underserved (>15 miles from a hospital)",
+    caption = "Vulnerability defined as bottom-25% median household income and 65+ share ≥ 15% (ACS 2022). Hospitals shown as points."
+  ) +
+  coord_sf() +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    plot.caption = element_text(size = 7)
+  )
+```
+The choropleth map highlights county-level variation in healthcare access by showing the share of vulnerable census tracts that are underserved (defined as more than 15 miles from the nearest hospital). Most counties have low or zero underserved shares, indicating relatively good geographic access to hospitals. However, a small number of counties, particularly Clearfield, Bradford, Cameron, and Monroe, show elevated underserved rates, suggesting localized access challenges. Hospital locations are heavily clustered in urban areas, which helps explain why underserved tracts are more concentrated in rural counties.
+
+**Requirements:**
+- Fill counties by percentage of vulnerable tracts that are underserved
+- Include hospital locations as points
+- Use an appropriate color scheme
+- Include clear title, subtitle, and caption
+- Use `theme_void()` or similar clean theme
+- Add a legend with formatted labels
+
+---
+
+### Map 2: Detailed Vulnerability Map 
+
+Create a map highlighting underserved vulnerable tracts.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+
+# Create detailed tract-level map
+counties_map2 <- st_transform(counties, 26918)
+hosp_map2 <- st_transform(hospitals, 26918)
+
+vuln_map2 <- vuln_with_dist 
+
+underserved_sf <- vuln_map2 %>% filter(underserved)
+vulnerable_not_underserved_sf <- vuln_map2 %>% filter(!underserved)
+
+ggplot() +
+  geom_sf(data = counties_map2, fill = NA, color = "grey60", linewidth = 0.25) +
+  
+  geom_sf(
+    data = vulnerable_not_underserved_sf,
+    fill = "grey85",
+    color = NA,
+    alpha = 0.6
+  ) +
+  
+  geom_sf(
+    data = underserved_sf,
+    fill = "red3",
+    color = NA,
+    alpha = 0.8
+  ) +
+  
+  geom_sf(
+    data = hosp_map2,
+    color = "black",
+    size = 0.8,
+    alpha = 0.7
+  ) +
+  
+  labs(
+    title = "Underserved Vulnerable Census Tracts in Pennsylvania",
+    subtitle = "Underserved = vulnerable tracts located more than 15 miles from the nearest hospital",
+    caption = "Vulnerability defined as bottom-25% median household income and 65+ share ≥ 15% (ACS 2022). Hospitals shown as points."
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    plot.caption = element_text(size = 8)
+  )
+```
+This map highlights vulnerable census tracts that are also geographically underserved, defined as being more than 15 miles from the nearest hospital. Most underserved tracts appear in rural parts of Pennsylvania, particularly in north-central and western counties, where hospital density is lower and travel distances are greater. In contrast, urban regions show dense hospital clustering and few underserved tracts. Overall, the map suggests that healthcare access disparities are driven largely by geographic isolation rather than a lack of vulnerable populations statewide.
+
+**Requirements:**
+- Show underserved vulnerable tracts in a contrasting color
+- Include county boundaries for context
+- Show hospital locations
+- Use appropriate visual hierarchy (what should stand out?)
+- Include informative title and subtitle
+
+---
+
+### Chart: Distribution Analysis
+
+Create a visualization showing the distribution of distances to hospitals for vulnerable populations.
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+# Create distribution visualization
+
+ggplot(vuln_with_dist, aes(x = dist_to_hosp_miles)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "white",
+    alpha = 0.8
+  ) +
+  geom_density(
+    color = "darkred",
+    linewidth = 1.1,
+    alpha = 0.6
+  ) +
+  geom_vline(
+    xintercept = 15,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 1
+  ) +
+  labs(
+    title = "Distribution of Distance to Nearest Hospital for Vulnerable Census Tracts",
+    subtitle = "Dashed line indicates underserved threshold (15 miles)",
+    x = "Distance to nearest hospital (miles)",
+    y = "Number of vulnerable tracts",
+    caption = "Distances calculated using tract centroids and projected CRS (EPSG:26918)."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    plot.caption = element_text(size = 8)
+  )
+
+
+
+```
+The distribution shows that most vulnerable tracts are located relatively close to hospitals, with distances clustering below 10 miles. However, a small tail of tracts exceeds the 15-mile threshold, indicating localized geographic access challenges that disproportionately affect rural vulnerable populations.
+
+**Suggested chart types:**
+- Histogram or density plot of distances
+- Box plot comparing distances across regions
+- Bar chart of underserved tracts by county
+- Scatter plot of distance vs. vulnerable population size
+
+**Requirements:**
+- Clear axes labels with units
+- Appropriate title
+- Professional formatting
+- Brief interpretation (1-2 sentences as a caption or in text)
+
+---
+
+## Part 3: Bring Your Own Data Analysis 
+
+Choose your own additional spatial dataset and conduct a supplementary analysis.
+
+### Challenge Options
+
+Choose ONE of the following challenge exercises, or propose your own research question using OpenDataPhilly data (https://opendataphilly.org/datasets/). 
+
+**Note these are just loose suggestions to spark ideas - follow or make your own as the data permits and as your ideas evolve. This analysis should include bringing in your own dataset, ensuring the projection/CRS of your layers align and are appropriate for the analysis (not lat/long or geodetic coordinate systems). The analysis portion should include some combination of spatial and attribute operations to answer a relatively straightforward question**
+
+---
+
+#### Education & Youth Services
+
+**Option A: Educational Desert Analysis**
+- **Data:** Schools, Libraries, Recreation Centers, Census tracts (child population)
+- **Question:** "Which neighborhoods lack adequate educational infrastructure for children?"
+- **Operations:** Buffer schools/libraries (0.5 mile walking distance), identify coverage gaps, overlay with child population density
+- **Policy relevance:** School district planning, library placement, after-school program siting
+
+**Option B: School Safety Zones**
+- **Data:** Schools, Crime Incidents, Bike Network
+- **Question:** "Are school zones safe for walking/biking, or are they crime hotspots?"
+- **Operations:** Buffer schools (1000ft safety zone), spatial join with crime incidents, assess bike infrastructure coverage
+- **Policy relevance:** Safe Routes to School programs, crossing guard placement
+
+---
+
+#### Environmental Justice
+
+**Option C: Green Space Equity** 
+- **Data:** Parks, Street Trees, Census tracts (race/income demographics)
+- **Question:** "Do low-income and minority neighborhoods have equitable access to green space?"
+- **Operations:** Buffer parks (10-minute walk = 0.5 mile), calculate tree canopy or park acreage per capita, compare by demographics
+- **Policy relevance:** Climate resilience, environmental justice, urban forestry investment
+---
+
+#### Public Safety & Justice
+
+**Option D: Crime & Community Resources**
+- **Data:** Crime Incidents, Recreation Centers, Libraries, Street Lights
+- **Question:** "Are high-crime areas underserved by community resources?"
+- **Operations:** Aggregate crime counts to census tracts or neighborhoods, count community resources per area, spatial correlation analysis
+- **Policy relevance:** Community investment, violence prevention strategies
+---
+
+#### Infrastructure & Services
+
+**Option E: Polling Place Accessibility**
+- **Data:** Polling Places, SEPTA stops, Census tracts (elderly population, disability rates)
+- **Question:** "Are polling places accessible for elderly and disabled voters?"
+- **Operations:** Buffer polling places and transit stops, identify vulnerable populations, find areas lacking access
+- **Policy relevance:** Voting rights, election infrastructure, ADA compliance
+
+---
+
+#### Health & Wellness
+
+**Option F: Recreation & Population Health**
+- **Data:** Recreation Centers, Playgrounds, Parks, Census tracts (demographics)
+- **Question:** "Is lack of recreation access associated with vulnerable populations?"
+- **Operations:** Calculate recreation facilities per capita by neighborhood, buffer facilities for walking access, overlay with demographic indicators
+- **Policy relevance:** Public health investment, recreation programming, obesity prevention
+
+---
+
+#### Emergency Services
+
+**Option G: EMS Response Coverage**
+- **Data:** Fire Stations, EMS stations, Population density, High-rise buildings
+- **Question:** "Are population-dense areas adequately covered by emergency services?"
+- **Operations:** Create service area buffers (5-minute drive = ~2 miles), assess population coverage, identify gaps in high-density areas
+- **Policy relevance:** Emergency preparedness, station siting decisions
+
+---
+
+#### Arts & Culture
+
+**Option H: Cultural Asset Distribution**
+- **Data:** Public Art, Museums, Historic sites/markers, Neighborhoods
+- **Question:** "Do all neighborhoods have equitable access to cultural amenities?"
+- **Operations:** Count cultural assets per neighborhood, normalize by population, compare distribution across demographic groups
+- **Policy relevance:** Cultural equity, tourism, quality of life, neighborhood identity
+
+---
+
+### Data Sources
+
+**OpenDataPhilly:** https://opendataphilly.org/datasets/
+- Most datasets available as GeoJSON, Shapefile, or CSV with coordinates
+- Always check the Metadata for a data dictionary of the fields.
+
+**Additional Sources:**
+- **Pennsylvania Open Data:** https://data.pa.gov/
+- **Census Bureau (via tidycensus):** Demographics, economic indicators, commute patterns
+- **TIGER/Line (via tigris):** Geographic boundaries
+
+### Recommended Starting Points
+
+**If you're feeling confident:** Choose an advanced challenge with multiple data layers. 
+**If you are a beginner, choose something more manageable that helps you understand the basics**
+
+
+**If you have a different idea:** Propose your own question! Just make sure:
+- You can access the spatial data
+- You can perform at least 2 spatial operations
+
+### Your Analysis
+
+**Your Task:**
+
+1. **Find and load additional data**
+   - Document your data source
+   - Check and standardize the CRS
+   - Provide basic summary statistics
+
+```{r}
+library(sf)
+library(dplyr)
+library(knitr)
+
+# Load your additional dataset
+data_dir <- path.expand("~/Downloads")
+ppr_path <- file.path(data_dir, "PPR_Program_Sites.geojson")
+
+program_sites_raw <- st_read(ppr_path, quiet = TRUE)
+
+program_sites <- st_transform(program_sites_raw, st_crs(pa_tracts))
+
+# Basic summary stats
+ppr_summary <- data.frame(
+  dataset = "PPR Program Sites",
+  features = nrow(program_sites),
+  geometry_type = paste(unique(st_geometry_type(program_sites)), collapse = ", "),
+  crs_epsg = st_crs(program_sites)$epsg
+)
+
+kable(ppr_summary, caption = "Additional dataset summary: Parks & Recreation Program Sites")
+```
+
+**Questions to answer:**
+- What dataset did you choose and why?
+
+I used the Parks & Recreation Program Sites dataset from OpenDataPhilly. I chose this dataset because it captures recreation centers, playgrounds, and community facilities that can influence neighborhood health and well-being. Since my main analysis focused on healthcare access, this dataset allows me to explore whether underserved or vulnerable areas also face gaps in recreation resources.
+
+- What is the data source and date?
+
+The dataset was obtained from OpenDataPhilly and maintained by the City of Philadelphia Parks & Recreation department. According to the associated GitHub repository, the dataset was last updated approximately 2 months ago. 
+
+- How many features does it contain?
+
+171 features.
+
+- What CRS is it in? Did you need to transform it?
+
+The dataset is stored in EPSG:3857 (Web Mercator). To ensure consistency with the rest of my spatial analysis, I transformed it into the same projected CRS used for the census tract dataset.
+
+---
+
+2. **Pose a research question**
+
+Write a clear research statement that your analysis will answer.
+
+Are vulnerable census tracts with poor hospital access also underserved by recreation and community program sites in Philadelphia?
+
+**Examples:**
+- "Do vulnerable tracts have adequate public transit access to hospitals?"
+- "Are EMS stations appropriately located near vulnerable populations?"
+- "Do areas with low vehicle access have worse hospital access?"
+
+---
+
+3. **Conduct spatial analysis**
+
+Use at least TWO spatial operations to answer your research question.
+
+**Required operations (choose 2+):**
+- Buffers
+- Spatial joins
+- Spatial filtering with predicates
+- Distance calculations
+- Intersections or unions
+- Point-in-polygon aggregation
+
+**Your Task:**
+```{r}
+#| message: false
+#| warning: false
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+
+
+ppr <- program_sites
+
+# 2) Choose projected CRS for distance/buffers
+epsg_proj <- 26918
+
+tracts_proj <- st_transform(pa_tracts_demo, epsg_proj)
+ppr_proj    <- st_transform(ppr, epsg_proj)
+
+# 3) Filter to Philadelphia County tracts
+philly_tracts <- tracts_proj %>%
+  filter(COUNTYFP == "101")
+
+# 2) Create vulnerability flag on the FULL tract dataset (statewide cutoff)
+tracts_proj <- tracts_proj %>%
+  mutate(pct_65_plus = pop_65_plus / total_pop)
+
+income_cutoff <- quantile(tracts_proj$med_hh_income, 0.25, na.rm = TRUE)
+
+tracts_proj <- tracts_proj %>%
+  mutate(is_vulnerable = (med_hh_income <= income_cutoff) & (pct_65_plus >= 0.15))
+
+# 3) Filter to Philadelphia County tracts
+philly_tracts <- tracts_proj %>%
+  filter(COUNTYFP == "101")
+
+# 4) Keep only vulnerable Philly tracts
+philly_vulnerable <- philly_tracts %>%
+  filter(is_vulnerable == TRUE)
+
+# 5) Define “access” to PPR sites using a walking-distance buffer (0.5 mile)
+walk_miles  <- 0.5
+walk_meters <- walk_miles * 1609.34
+
+ppr_buffer <- st_buffer(ppr_proj, dist = walk_meters)
+
+# 6) Spatial operation: mark vulnerable tracts as having access if they intersect ANY buffer
+has_access <- lengths(st_intersects(philly_vulnerable, ppr_buffer)) > 0
+
+philly_vulnerable_access <- philly_vulnerable %>%
+  mutate(ppr_access = if_else(has_access, "Access within 0.5 mi", "No access within 0.5 mi"))
+
+# 7) (Second spatial operation) Point-in-polygon count:
+# count how many PPR sites fall inside each vulnerable tract
+ppr_in_tract <- st_join(ppr_proj, philly_vulnerable_access, join = st_within)
+
+ppr_counts <- ppr_in_tract %>%
+  st_drop_geometry() %>%
+  count(GEOID, name = "ppr_sites_in_tract")
+
+philly_vulnerable_access <- philly_vulnerable_access %>%
+  left_join(ppr_counts, by = "GEOID") %>%
+  mutate(ppr_sites_in_tract = if_else(is.na(ppr_sites_in_tract), 0L, ppr_sites_in_tract))
+
+# 8) Summary table
+n_vuln <- nrow(philly_vulnerable_access)
+n_with <- sum(philly_vulnerable_access$ppr_access == "Access within 0.5 mi")
+n_without <- sum(philly_vulnerable_access$ppr_access == "No access within 0.5 mi")
+
+access_summary <- data.frame(
+  metric = c(
+    "Walking access threshold",
+    "Vulnerable tracts (Philadelphia)",
+    "Vulnerable tracts WITH PPR access",
+    "Vulnerable tracts WITHOUT PPR access",
+    "Percent with access",
+    "Percent without access"
+  ),
+  value = c(
+    paste0(walk_miles, " miles"),
+    n_vuln,
+    n_with,
+    n_without,
+    paste0(round(100 * n_with / n_vuln, 2), "%"),
+    paste0(round(100 * n_without / n_vuln, 2), "%")
+  )
+)
+
+kable(access_summary, caption = "PPR access summary for vulnerable Philadelphia census tracts")
+
+# 9) Map (add background Philly tracts so it looks like the "full Philly" map)
+ggplot() +
+  # Background: all Philly tracts in light/neutral outline
+  geom_sf(data = philly_tracts, fill = "white", color = "grey80", linewidth = 0.15) +
+  
+  # Foreground: vulnerable tracts colored by access
+  geom_sf(data = philly_vulnerable_access, aes(fill = ppr_access),
+          color = "white", linewidth = 0.15) +
+  
+  # PPR sites as points
+  geom_sf(data = ppr_proj, color = "black", size = 1, alpha = 0.7) +
+  
+  scale_fill_manual(values = c(
+    "No access within 0.5 mi" = "#d73027",
+    "Access within 0.5 mi" = "#1a9850"
+  )) +
+  labs(
+    title = "Access to Parks & Recreation Program Sites for Vulnerable Census Tracts (Philadelphia County)",
+    subtitle = "Vulnerable = bottom-25% income (statewide) AND 65+ share ≥ 15% (ACS 2022); Access = within 0.5-mile buffer",
+    caption = "PPR program sites shown as points. Tracts shown for Philadelphia County.",
+    fill = "PPR access"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    legend.position = "right"
+  )
+```
+
+**Analysis requirements:**
+- Clear code comments explaining each step
+- Appropriate CRS transformations
+- Summary statistics or counts
+- At least one map showing your findings
+- Brief interpretation of results (3-5 sentences)
+
+**Your interpretation:**
+
+To assess access to recreational resources, I created a 0.5-mile walking buffer around Parks & Recreation Program (PPR) sites and examined which vulnerable census tracts intersected these buffers. The results show that most vulnerable tracts have nearby access: 55 out of 59 tracts (93.22%) fall within walking distance, while 4 tracts (6.78%) do not.
+
+The spatial pattern suggests that PPR sites are fairly well distributed across Philadelphia, providing broad coverage for vulnerable populations. At the same time, the small number of tracts without access appear geographically concentrated, indicating localized gaps where residents may face reduced opportunities for nearby recreation. Overall, the analysis points to generally strong accessibility but highlights specific areas where additional facilities or targeted investment could improve equity in access.
+
+
+## Finally - A few comments about your incorporation of feedback!
+Take a few moments to clean up your markdown document and then write a line or two or three about how you may have incorporated feedback that you recieved after your first assignment. 
+
+After my first assignment, I received feedback that my website was not rendering properly, which forced me to complete parts of the work in Google Colab. For this submission, I made sure the Quarto site compiled correctly from the start and verified that all outputs displayed as intended. I also incorporated formatting feedback by suppressing unnecessary console messages using chunk options (message: false, warning: false, results: 'hide') to improve readability. Finally, I used kable to present summary tables more cleanly, which helped make the results easier to interpret for the audience.
+
+---
+
+## Submission Requirements
+
+**What to submit:**
+
+1. **Rendered HTML document posted to your course portfolio** with all code, outputs, maps, and text
+   - Use `embed-resources: true` in YAML so it's a single file
+   - All code should run without errors
+   - All maps and charts should display correctly
+2. Submit the correct and working links of your assignment on Canvas
+
+---
+
