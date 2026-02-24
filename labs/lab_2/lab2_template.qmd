@@ -1,7 +1,7 @@
 ---
 title: "Lab 2: Spatial Analysis and Visualization"
 subtitle: "Healthcare Access and Equity in Pennsylvania"
-author: "Your Name Here"
+author: "Vedika Jawa"
 date: today
 format: 
   html:
