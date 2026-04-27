@@ -1,0 +1,1031 @@
+---
+title: "Lab 4: Spatial Predictive Analysis"
+subtitle: "Analyzing 311 Violations"
+author: "Your Name Here"
+date: today
+format: 
+  html:
+    code-fold: false
+    toc: true
+    toc-location: left
+    theme: cosmo
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## Assignment Overview
+
+In this lab, you will apply the spatial predictive modeling techniques demonstrated 
+in the class exercise using a different 311 service request type of your choice as the predictor variable. You will build a complete spatial predictive model, document your process, and interpret your results.
+
+### Learning Objectives
+
+By completing this assignment, you will demonstrate your ability to:
+
+- Adapt example code to analyze a new dataset
+- Build spatial features for predictive modeling
+- Apply count regression techniques to spatial data
+- Implement spatial cross-validation
+- Interpret and communicate model results
+- Critically evaluate model performance
+
+---
+
+## Step 1: Choose Your 311 Violation Type
+
+### Getting the Data
+
+Visit the Chicago 311 Service Requests dataset:
+
+<https://data.cityofchicago.org/stories/s/311-Dataset-Changes-12-11-2018/d7nq-5g7t>
+
+Browse the available service request types (e.g., Graffiti Removal, Pothole Repair, Street Light Out, Sanitation Code Violations, etc.) and **choose one violation type** that interests you.
+
+### Requirements for Your Choice
+
+- Choose a **different** violation type than the abandoned cars we did in class.
+---
+
+## Step 2: Complete the Analysis
+
+Using the class exercise as your template, adapt the code to analyze your chosen 311 violation type.
+
+### What to Include
+
+Work through all major sections of the analysis:
+
+#### Part 1: Data Loading & Exploration
+### Part 1: Data Loading and Exploration
+
+In this first section, I loaded the main spatial datasets needed for the analysis: the Chicago boundary, police districts, 2017 burglary data, and my chosen 311 request type, graffiti removal complaints. I chose graffiti complaints because they are a visible form of neighborhood disorder and there are enough records in the dataset to analyze spatial patterns across the city.
+
+This step is important because before building any model, I need to understand what the raw data looks like and where the observations are located. Mapping the burglary points and graffiti complaints helps show whether the data is evenly distributed or spatially clustered. This matters because if the 311 complaints are clustered in certain neighborhoods, they may help explain spatial variation in burglary counts later in the model.
+
+From the maps, I found that graffiti complaints are not randomly or evenly spread across Chicago. They are concentrated in specific parts of the city, especially around central, north, and west-side areas, while other areas have fewer complaints. This suggests that graffiti complaints have a clear spatial pattern, which makes them a reasonable predictor to use in the rest of the analysis.
+
+- Load your 311 data and Chicago spatial boundaries
+
+```{r}
+# ---- PART 1: DATA LOADING & EXPLORATION ----
+
+# Load packages
+library(tidyverse)
+library(sf)
+library(here)
+library(viridis)
+library(patchwork)
+
+options(scipen = 999)
+
+# Simple clean map theme
+theme_lab <- function(base_size = 11) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.title = element_text(face = "bold"),
+      plot.subtitle = element_text(color = "gray30"),
+      axis.text = element_blank(),
+      axis.title = element_blank(),
+      panel.grid = element_blank(),
+      legend.position = "right"
+    )
+}
+
+theme_set(theme_lab())
+
+# ---- Load Chicago boundary ----
+chicagoBoundary <- 
+  st_read("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/Chapter5/chicagoBoundary.geojson") %>%
+  st_transform("ESRI:102271")
+
+# ---- Load police districts for later spatial CV ----
+policeDistricts <- 
+  st_read("https://data.cityofchicago.org/api/geospatial/24zt-jpfn?method=export&format=GeoJSON") %>%
+  st_transform("ESRI:102271") %>%
+  dplyr::select(District = dist_num)
+
+# ---- Load 2017 burglary data ----
+burglaries <- st_read(
+  "~/Documents/MUSA 5080/vedikapolicyanalytics/labs/lab_4/data/burglaries.shp"
+) %>%
+  st_transform("ESRI:102271")
+
+# ---- Load 311 Graffiti Removal data ----
+# Historical dataset ID: hec5-y4x5
+# This keeps only 2017 requests with coordinates
+
+graffiti_311 <- read_csv(
+  "https://data.cityofchicago.org/resource/hec5-y4x5.csv?$limit=50000"
+) %>%
+  clean_names() %>%
+  mutate(
+    creation_date = as.Date(creation_date)
+  ) %>%
+  filter(
+    year(creation_date) == 2017,
+    !is.na(latitude),
+    !is.na(longitude)
+  ) %>%
+  st_as_sf(
+    coords = c("longitude", "latitude"),
+    crs = 4326
+  ) %>%
+  st_transform("ESRI:102271")
+
+# ---- Basic summaries ----
+cat("Chicago boundary loaded:", nrow(chicagoBoundary), "feature(s)\n")
+cat("Police districts loaded:", nrow(policeDistricts), "districts\n")
+cat("Burglaries loaded:", nrow(burglaries), "incidents\n")
+cat("Graffiti 311 requests loaded:", nrow(graffiti_311), "requests\n")
+
+cat("\nGraffiti request date range:\n")
+print(range(graffiti_311$creation_date, na.rm = TRUE))
+
+# ---- Visualize burglary points and graffiti 311 points ----
+
+p1 <- ggplot() +
+  geom_sf(data = chicagoBoundary, fill = "gray95", color = "gray60") +
+  geom_sf(data = burglaries, color = "#d62828", size = 0.15, alpha = 0.4) +
+  labs(
+    title = "Burglary Locations",
+    subtitle = "Chicago, 2017"
+  )
+
+p2 <- ggplot() +
+  geom_sf(data = chicagoBoundary, fill = "gray95", color = "gray60") +
+  geom_sf(data = graffiti_311, color = "#2a9d8f", size = 0.15, alpha = 0.35) +
+  labs(
+    title = "311 Graffiti Removal Requests",
+    subtitle = "Chicago, 2017"
+  )
+
+p1 + p2 +
+  plot_annotation(
+    title = "Spatial Distribution of Burglaries and Graffiti 311 Requests"
+  )
+```
+```{r}
+# ---- Load 2017 Graffiti Removal 311 data correctly ----
+
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(janitor)
+library(viridis)
+library(patchwork)
+
+graffiti_url <- paste0(
+  "https://data.cityofchicago.org/resource/hec5-y4x5.csv?",
+  "$limit=500000&",
+  "$where=creation_date between '2017-01-01T00:00:00' and '2017-12-31T23:59:59'"
+)
+
+graffiti_311 <- read_csv(URLencode(graffiti_url), show_col_types = FALSE) %>%
+  clean_names() %>%
+  filter(!is.na(latitude), !is.na(longitude)) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+  st_transform("ESRI:102271")
+
+cat("Graffiti 311 requests loaded:", nrow(graffiti_311), "requests\n")
+```
+
+- Create visualizations showing the spatial distribution of your violation type
+
+```{r}
+p1 <- ggplot() +
+  geom_sf(data = chicagoBoundary, fill = "gray95", color = "gray60") +
+  geom_sf(data = graffiti_311, color = "#2a9d8f", size = 0.08, alpha = 0.25) +
+  labs(
+    title = "311 Graffiti Requests",
+    subtitle = paste0("Chicago, 2017 | n = ", nrow(graffiti_311))
+  ) +
+  theme_lab()
+
+p2 <- ggplot() +
+  geom_sf(data = chicagoBoundary, fill = "gray95", color = "gray60") +
+  geom_density_2d_filled(
+    data = data.frame(st_coordinates(graffiti_311)),
+    aes(X, Y),
+    alpha = 0.75,
+    bins = 8
+  ) +
+  scale_fill_viridis_d(
+    option = "plasma",
+    direction = -1,
+    guide = "none"
+  ) +
+  labs(
+    title = "Graffiti Density",
+    subtitle = "Kernel density visualization"
+  ) +
+  theme_lab()
+
+p1 + p2 +
+  plot_annotation(title = "Spatial Distribution of Graffiti 311 Requests")
+```
+
+- Describe patterns you observe
+
+The graffiti removal requests are clearly not evenly spread across the city. Instead, they are heavily concentrated in certain areas, especially in central and parts of the north and west sides of Chicago. There are noticeable clusters where requests are very dense, while other areas, particularly farther south or on the edges of the city, have relatively few requests. This suggests that graffiti activity is spatially clustered rather than random, and that some neighborhoods experience much higher levels of reported graffiti than others.
+
+#### Part 2: Fishnet Grid Creation
+
+In this step, I created a 500m by 500m fishnet grid that covers the entire Chicago boundary. Instead of working with individual point data, I divided the city into evenly sized grid cells and then counted how many graffiti complaints fall inside each cell. This converts the data from point-level observations into area-based counts.
+
+This step is important because the regression models I use later require a consistent unit of analysis. Individual points are difficult to model directly, especially when trying to compare across space. By aggregating the data into grid cells, I can treat each cell as a comparable observation and analyze how counts vary across different parts of the city.
+
+From the results, I found that the distribution of graffiti complaints across grid cells is highly uneven. Most cells have relatively few complaints, while a small number of cells have very high counts. The fishnet map also shows clear clusters where complaints are concentrated, rather than being spread uniformly. This reinforces the idea that graffiti activity is spatially clustered, which justifies using spatial features and count-based models in the next steps.
+
+- Create a 500m x 500m fishnet grid
+```{r}
+# ---- PART 2: CREATE 500m x 500m FISHNET GRID ----
+
+fishnet <- st_make_grid(
+  chicagoBoundary,
+  cellsize = 500,
+  square = TRUE
+) %>%
+  st_sf() %>%
+  mutate(uniqueID = row_number()) %>%
+  st_transform("ESRI:102271")
+
+# Keep only grid cells that intersect Chicago
+fishnet <- fishnet[chicagoBoundary, ]
+
+# Check grid
+cat("Fishnet grid created\n")
+cat("Number of cells:", nrow(fishnet), "\n")
+cat("Cell size: 500m x 500m\n")
+
+# Visualize fishnet
+ggplot() +
+  geom_sf(data = fishnet, fill = NA, color = "gray70", linewidth = 0.1) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "black", linewidth = 0.5) +
+  labs(
+    title = "500m x 500m Fishnet Grid",
+    subtitle = "Chicago boundary with regular grid cells"
+  ) +
+  theme_lab()
+```
+
+- Aggregate your violations to grid cells
+```{r}
+# ---- AGGREGATE GRAFFITI REQUESTS TO GRID CELLS ----
+
+graffiti_fishnet <- st_join(
+  graffiti_311,
+  fishnet,
+  join = st_within
+) %>%
+  st_drop_geometry() %>%
+  group_by(uniqueID) %>%
+  summarize(graffiti_count = n())
+
+# Join counts back to the fishnet
+fishnet <- fishnet %>%
+  left_join(graffiti_fishnet, by = "uniqueID") %>%
+  mutate(graffiti_count = replace_na(graffiti_count, 0))
+
+# Check distribution
+summary(fishnet$graffiti_count)
+
+cat("Cells with zero graffiti requests:",
+    sum(fishnet$graffiti_count == 0),
+    "out of",
+    nrow(fishnet),
+    "\n")
+```
+
+- Visualize the count distribution
+
+```{r}
+# ---- BETTER COUNT DISTRIBUTION VISUALIZATION ----
+
+fishnet_counts <- fishnet %>%
+  st_drop_geometry()
+
+# Check summary first
+summary(fishnet_counts$graffiti_count)
+
+# Histogram zoomed to the 95th percentile
+ggplot(fishnet_counts, aes(x = graffiti_count)) +
+  geom_histogram(
+    bins = 40,
+    fill = "#2a9d8f",
+    color = "white"
+  ) +
+  coord_cartesian(
+    xlim = c(0, quantile(fishnet_counts$graffiti_count, 0.95, na.rm = TRUE))
+  ) +
+  labs(
+    title = "Distribution of Graffiti Requests per Grid Cell",
+    subtitle = "Zoomed to the 95th percentile because a few cells have very high counts",
+    x = "Graffiti Requests per Grid Cell",
+    y = "Number of Grid Cells"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Log-scaled histogram to show skew more clearly
+ggplot(fishnet_counts, aes(x = graffiti_count + 1)) +
+  geom_histogram(
+    bins = 40,
+    fill = "#2a9d8f",
+    color = "white"
+  ) +
+  scale_x_log10() +
+  labs(
+    title = "Log-Scaled Distribution of Graffiti Requests",
+    subtitle = "Adding 1 allows cells with zero requests to stay in the plot",
+    x = "Graffiti Requests per Grid Cell + 1, log scale",
+    y = "Number of Grid Cells"
+  ) +
+  theme_minimal()
+```
+```{r}
+# ---- VISUALIZE GRAFFITI COUNTS ON FISHNET ----
+
+ggplot() +
+  geom_sf(data = fishnet, aes(fill = graffiti_count), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.6) +
+  scale_fill_viridis_c(
+    name = "Graffiti Requests",
+    option = "plasma",
+    trans = "sqrt"
+  ) +
+  labs(
+    title = "Graffiti Complaint Counts by Grid Cell",
+    subtitle = "500m x 500m cells, Chicago 2017"
+  ) +
+  theme_minimal()
+```
+
+#### Part 3: Spatial Features
+
+### Part 3: Creating Spatial Features
+
+In this step, I created several spatial features that capture how each grid cell relates to nearby graffiti activity. First, I calculated a k-nearest neighbor measure, which gives the average distance from each grid cell to the closest graffiti complaints. Then, I ran a Local Moran’s I analysis to identify statistically significant clusters of high and low graffiti activity, which allowed me to label certain areas as hot spots or cold spots. Finally, I created a distance-to-hotspot variable, which measures how far each grid cell is from the nearest high-activity cluster.
+
+This step is important because the raw count of graffiti complaints alone does not fully capture the spatial relationships in the data. Locations that are near clusters of activity may behave differently than isolated areas, even if their raw counts are similar. By adding these spatial features, I can give the model more information about the surrounding environment of each grid cell, which should improve its ability to explain variation in the data.
+
+From the results, I found clear evidence of spatial clustering. The Local Moran’s I analysis identified several high-high clusters, meaning areas with high graffiti activity surrounded by other high-activity areas. There were very few cold spots, suggesting that low-activity areas are more dispersed. The distance-based features also show meaningful patterns, where areas closer to existing graffiti activity tend to have higher counts. Overall, this step confirmed that spatial dependence is a key characteristic of the data and should be incorporated into the modeling.
+
+
+- Calculate k-nearest neighbor features
+- Perform Local Moran's I analysis
+- Identify hot spots and cold spots
+- Create distance-to-hotspot measures
+- Join any additional contextual data if you are looking for more to do and really get into this (e.g., demographics, land use)
+
+```{r}
+# ---- PART 3: SPATIAL FEATURES ----
+
+library(spdep)
+library(FNN)
+
+# Make sure fishnet has centroids
+fishnet_centroids <- st_centroid(fishnet)
+
+# ============================================================
+# 1. K-NEAREST NEIGHBOR FEATURE
+# ============================================================
+
+# Coordinates of grid cell centroids
+fishnet_coords <- st_coordinates(fishnet_centroids)
+
+# Coordinates of graffiti request points
+graffiti_coords <- st_coordinates(graffiti_311)
+
+# Calculate mean distance from each grid cell to the 3 nearest graffiti requests
+nn_result <- get.knnx(
+  data = graffiti_coords,
+  query = fishnet_coords,
+  k = 3
+)
+
+fishnet <- fishnet %>%
+  mutate(
+    graffiti_nn = rowMeans(nn_result$nn.dist)
+  )
+
+summary(fishnet$graffiti_nn)
+
+
+# Visualize nearest neighbor distance
+ggplot() +
+  geom_sf(data = fishnet, aes(fill = graffiti_nn), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.6) +
+  scale_fill_viridis_c(
+    name = "Mean Distance",
+    option = "magma"
+  ) +
+  labs(
+    title = "Distance to 3 Nearest Graffiti Requests",
+    subtitle = "Lower values indicate closer proximity to graffiti activity"
+  ) +
+  theme_minimal()
+
+
+# ============================================================
+# 2. LOCAL MORAN'S I ANALYSIS
+# ============================================================
+
+calculate_local_morans <- function(data, variable, k = 5) {
+  
+  coords <- st_coordinates(st_centroid(data))
+  
+  neighbors <- knn2nb(knearneigh(coords, k = k))
+  weights <- nb2listw(neighbors, style = "W", zero.policy = TRUE)
+  
+  local_moran <- localmoran(data[[variable]], weights, zero.policy = TRUE)
+  
+  mean_val <- mean(data[[variable]], na.rm = TRUE)
+  
+  data %>%
+    mutate(
+      local_i = local_moran[, 1],
+      p_value = local_moran[, 5],
+      is_significant = p_value < 0.05,
+      moran_class = case_when(
+        !is_significant ~ "Not Significant",
+        local_i > 0 & .data[[variable]] > mean_val ~ "High-High",
+        local_i > 0 & .data[[variable]] <= mean_val ~ "Low-Low",
+        local_i < 0 & .data[[variable]] > mean_val ~ "High-Low",
+        local_i < 0 & .data[[variable]] <= mean_val ~ "Low-High",
+        TRUE ~ "Not Significant"
+      )
+    )
+}
+
+fishnet <- calculate_local_morans(
+  data = fishnet,
+  variable = "graffiti_count",
+  k = 5
+)
+
+table(fishnet$moran_class)
+
+
+# Visualize Local Moran's I clusters
+ggplot() +
+  geom_sf(data = fishnet, aes(fill = moran_class), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.6) +
+  scale_fill_manual(
+    values = c(
+      "High-High" = "#d7191c",
+      "High-Low" = "#fdae61",
+      "Low-High" = "#abd9e9",
+      "Low-Low" = "#2c7bb6",
+      "Not Significant" = "gray90"
+    ),
+    name = "Cluster Type"
+  ) +
+  labs(
+    title = "Local Moran's I: Graffiti Complaint Clusters",
+    subtitle = "High-High cells are graffiti hot spots; Low-Low cells are cold spots"
+  ) +
+  theme_minimal()
+
+
+# ============================================================
+# 3. IDENTIFY HOT SPOTS AND COLD SPOTS
+# ============================================================
+
+hotspots <- fishnet %>%
+  filter(moran_class == "High-High") %>%
+  st_centroid()
+
+coldspots <- fishnet %>%
+  filter(moran_class == "Low-Low") %>%
+  st_centroid()
+
+cat("Number of graffiti hot spot cells:", nrow(hotspots), "\n")
+cat("Number of graffiti cold spot cells:", nrow(coldspots), "\n")
+
+
+# ============================================================
+# 4. DISTANCE TO HOT SPOTS
+# ============================================================
+
+if (nrow(hotspots) > 0) {
+  
+  fishnet <- fishnet %>%
+    mutate(
+      dist_to_graffiti_hotspot = as.numeric(
+        st_distance(st_centroid(fishnet), st_union(hotspots))
+      )
+    )
+  
+} else {
+  
+  fishnet <- fishnet %>%
+    mutate(dist_to_graffiti_hotspot = NA_real_)
+  
+  cat("No significant graffiti hot spots found.\n")
+}
+
+summary(fishnet$dist_to_graffiti_hotspot)
+
+
+# Visualize distance to graffiti hot spots
+ggplot() +
+  geom_sf(data = fishnet, aes(fill = dist_to_graffiti_hotspot), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.6) +
+  scale_fill_viridis_c(
+    name = "Distance",
+    option = "plasma"
+  ) +
+  labs(
+    title = "Distance to Nearest Graffiti Hot Spot",
+    subtitle = "Distance from each grid cell to the nearest High-High graffiti cluster"
+  ) +
+  theme_minimal()
+```
+
+#### Part 4: Count Regression Models
+
+
+In this step, I fit two different count regression models to explain variation in graffiti complaints across grid cells: a Poisson model and a Negative Binomial model. Both models use the spatial features I created earlier, like distance to nearby graffiti and distance to hotspots, to predict the number of complaints in each cell.
+
+This step is important because the outcome I am trying to model is a count variable, which means standard linear regression is not appropriate. The Poisson model is the simplest option for count data, but it assumes that the mean and variance are equal. Based on the earlier distribution plots, I already expected that this assumption would not hold, since the data is highly skewed with some extreme values. The Negative Binomial model relaxes this assumption and is better suited for overdispersed data.
+
+From the results, I found strong evidence of overdispersion, which makes the Poisson model a poor fit. This is also reflected in the AIC comparison, where the Negative Binomial model has a much lower AIC than the Poisson model, indicating a significantly better fit. The coefficients in the Negative Binomial model are also statistically significant and negative, meaning that as distance from graffiti activity or hotspots increases, the expected number of complaints decreases. Overall, the Negative Binomial model is clearly more appropriate for this data and will be the model I rely on moving forward.
+
+
+- Fit Poisson regression
+- Fit Negative Binomial regression
+- Compare model fit (AIC)
+
+```{r}
+# ---- PART 4: COUNT REGRESSION MODELS ----
+
+library(MASS)
+library(broom)
+library(kableExtra)
+
+# Create clean modeling dataset
+fishnet_model <- fishnet %>%
+  st_drop_geometry() %>%
+  dplyr::select(
+    uniqueID,
+    graffiti_count,
+    graffiti_nn,
+    dist_to_graffiti_hotspot
+  ) %>%
+  filter(
+    !is.na(graffiti_count),
+    !is.na(graffiti_nn),
+    !is.na(dist_to_graffiti_hotspot)
+  )
+
+# Check modeling data
+summary(fishnet_model)
+
+# ---- Fit Poisson Regression ----
+
+poisson_model <- glm(
+  graffiti_count ~ graffiti_nn + dist_to_graffiti_hotspot,
+  data = fishnet_model,
+  family = "poisson"
+)
+
+summary(poisson_model)
+
+# ---- Check Overdispersion ----
+
+dispersion <- sum(residuals(poisson_model, type = "pearson")^2) /
+  poisson_model$df.residual
+
+cat("Poisson dispersion parameter:", round(dispersion, 2), "\n")
+
+if (dispersion > 1.5) {
+  cat("Overdispersion detected. Negative Binomial model is likely better.\n")
+} else {
+  cat("Poisson dispersion looks acceptable.\n")
+}
+
+# ---- Fit Negative Binomial Regression ----
+
+nb_model <- glm.nb(
+  graffiti_count ~ graffiti_nn + dist_to_graffiti_hotspot,
+  data = fishnet_model
+)
+
+summary(nb_model)
+
+# ---- Compare Model Fit Using AIC ----
+
+model_comparison <- tibble(
+  model = c("Poisson", "Negative Binomial"),
+  AIC = c(AIC(poisson_model), AIC(nb_model))
+) %>%
+  mutate(AIC = round(AIC, 2))
+
+model_comparison %>%
+  kable(
+    caption = "Model Fit Comparison Using AIC"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# ---- Optional: Exponentiated Coefficients for Easier Interpretation ----
+
+tidy(nb_model, exponentiate = TRUE, conf.int = TRUE) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  kable(
+    caption = "Negative Binomial Model Coefficients as Rate Ratios"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Part 5: Spatial Cross-Validation (2017)
+
+In this step, I implemented a spatial cross-validation approach using Leave-One-Group-Out (LOGO) cross-validation, where each police district is treated as a separate group. For each iteration, I trained the Negative Binomial model on all districts except one, and then tested the model on the held-out district. I then calculated error metrics like MAE and RMSE for each fold to evaluate how well the model performs on unseen spatial areas.
+
+This step is important because standard cross-validation methods randomly split the data, which does not work well for spatial data. Nearby grid cells are often very similar, so randomly splitting them can lead to overly optimistic performance estimates. By leaving out entire districts, I am forcing the model to predict in completely new geographic areas, which is a much more realistic test of how it would perform in practice.
+
+From the results, I found that the model’s performance varies across districts. Some districts have relatively low error, meaning the model generalizes well there, while others have much higher error, suggesting that the model struggles in those areas. The average MAE and RMSE give an overall sense of performance, but the variation across districts is just as important. This suggests that while the model captures general spatial patterns, it does not perform equally well everywhere, which is an important limitation to keep in mind.
+
+
+- Implement Leave-One-Group-Out cross-validation on 2017 data
+- Calculate and report error metrics (MAE, RMSE)
+
+```{r}
+# ---- PART 5: SPATIAL CROSS-VALIDATION (2017) ----
+
+library(MASS)
+library(knitr)
+library(kableExtra)
+
+# Join police districts to fishnet for spatial cross-validation
+fishnet_cv <- st_join(
+  fishnet,
+  policeDistricts,
+  join = st_within,
+  left = TRUE
+) %>%
+  filter(!is.na(District))
+
+# Create clean modeling dataset with district labels
+fishnet_cv_model <- fishnet_cv %>%
+  st_drop_geometry() %>%
+  dplyr::select(
+    uniqueID,
+    District,
+    graffiti_count,
+    graffiti_nn,
+    dist_to_graffiti_hotspot
+  ) %>%
+  filter(
+    !is.na(District),
+    !is.na(graffiti_count),
+    !is.na(graffiti_nn),
+    !is.na(dist_to_graffiti_hotspot)
+  )
+
+# Check districts
+cat("Number of districts:", length(unique(fishnet_cv_model$District)), "\n")
+cat("Number of grid cells:", nrow(fishnet_cv_model), "\n")
+
+# Get unique districts
+districts <- unique(fishnet_cv_model$District)
+
+# Empty table to store results
+cv_results <- tibble()
+
+cat("Running Leave-One-Group-Out spatial cross-validation...\n")
+
+for (i in seq_along(districts)) {
+  
+  test_district <- districts[i]
+  
+  # Split data by district
+  train_data <- fishnet_cv_model %>%
+    filter(District != test_district)
+  
+  test_data <- fishnet_cv_model %>%
+    filter(District == test_district)
+  
+  # Fit Negative Binomial model on all districts except the test district
+  cv_model <- glm.nb(
+    graffiti_count ~ graffiti_nn + dist_to_graffiti_hotspot,
+    data = train_data
+  )
+  
+  # Predict on the held-out district
+  test_predictions <- test_data %>%
+    mutate(
+      prediction = predict(cv_model, newdata = test_data, type = "response"),
+      error = graffiti_count - prediction,
+      abs_error = abs(error),
+      squared_error = error^2
+    )
+  
+  # Calculate error metrics
+  mae <- mean(test_predictions$abs_error, na.rm = TRUE)
+  rmse <- sqrt(mean(test_predictions$squared_error, na.rm = TRUE))
+  
+  # Store fold results
+  cv_results <- bind_rows(
+    cv_results,
+    tibble(
+      fold = i,
+      test_district = test_district,
+      n_test = nrow(test_data),
+      mae = mae,
+      rmse = rmse
+    )
+  )
+  
+  cat(
+    "Fold", i, "of", length(districts),
+    "- District", test_district,
+    "- MAE:", round(mae, 2),
+    "- RMSE:", round(rmse, 2), "\n"
+  )
+}
+
+# Overall metrics
+mean_mae <- mean(cv_results$mae, na.rm = TRUE)
+mean_rmse <- mean(cv_results$rmse, na.rm = TRUE)
+
+cat("\nSpatial Cross-Validation Complete\n")
+cat("Mean MAE:", round(mean_mae, 2), "\n")
+cat("Mean RMSE:", round(mean_rmse, 2), "\n")
+
+# Results table by district
+cv_results %>%
+  arrange(desc(mae)) %>%
+  mutate(
+    mae = round(mae, 2),
+    rmse = round(rmse, 2)
+  ) %>%
+  kable(
+    caption = "Leave-One-District-Out Spatial Cross-Validation Results"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Optional: visualize which districts were hardest to predict
+ggplot(cv_results, aes(x = reorder(test_district, mae), y = mae)) +
+  geom_col(fill = "#2a9d8f") +
+  coord_flip() +
+  labs(
+    title = "Spatial Cross-Validation Error by Police District",
+    subtitle = "Higher MAE means the model had more trouble predicting that district",
+    x = "Held-Out Police District",
+    y = "Mean Absolute Error (MAE)"
+  ) +
+  theme_minimal()
+```
+
+
+#### Part 6: Model Evaluation
+
+In this step, I compared the performance of my Negative Binomial model to a simpler baseline approach using Kernel Density Estimation (KDE). The KDE method essentially smooths past graffiti locations to predict where complaints are likely to occur, without using any additional predictors. I generated KDE-based predictions for each grid cell and then compared those to the predictions from my model using error metrics like MAE and RMSE, as well as visual maps.
+
+This step is important because it helps determine whether the added complexity of the model is actually useful. If a simple smoothing approach like KDE performs just as well or better, then the regression model may not be adding much value. This comparison forces me to justify the model rather than assuming it is better just because it is more complex.
+
+From the results, I found that the KDE baseline captures the overall spatial pattern of graffiti complaints quite well, especially the major hotspots, but it is very smooth and misses a lot of local variation. The Negative Binomial model, on the other hand, is able to capture more fine-grained differences across grid cells, even if it is still imperfect. In terms of metrics, the two approaches perform fairly similarly, with the model slightly improving on MAE while the KDE sometimes performs better on RMSE. Overall, the model provides some additional value by incorporating spatial features, but the improvement over the KDE baseline is relatively modest.
+
+- Compare to KDE baseline
+
+```{r}
+# ---- PART 6: MODEL EVALUATION: COMPARE TO KDE BASELINE ----
+#| fig-width: 14
+#| fig-height: 6
+
+library(spatstat.geom)
+library(spatstat.explore)
+library(terra)
+library(MASS)
+library(knitr)
+library(kableExtra)
+library(patchwork)
+
+# ---- 1. Create KDE baseline from graffiti point locations ----
+
+graffiti_ppp <- as.ppp(
+  st_coordinates(graffiti_311),
+  W = as.owin(st_bbox(chicagoBoundary))
+)
+
+kde_graffiti <- density.ppp(
+  graffiti_ppp,
+  sigma = 1000,
+  edge = TRUE
+)
+
+kde_raster <- rast(kde_graffiti)
+
+fishnet <- fishnet %>%
+  mutate(
+    kde_value = terra::extract(
+      kde_raster,
+      vect(fishnet),
+      fun = mean,
+      na.rm = TRUE
+    )[, 2]
+  )
+
+# ---- 2. Fit final Negative Binomial model ----
+
+final_nb_model <- glm.nb(
+  graffiti_count ~ graffiti_nn + dist_to_graffiti_hotspot,
+  data = fishnet_model
+)
+
+fishnet <- fishnet %>%
+  mutate(
+    prediction_nb = predict(
+      final_nb_model,
+      newdata = fishnet %>% st_drop_geometry(),
+      type = "response"
+    )
+  )
+
+# ---- 3. Convert KDE values into predicted counts ----
+
+kde_sum <- sum(fishnet$kde_value, na.rm = TRUE)
+count_sum <- sum(fishnet$graffiti_count, na.rm = TRUE)
+
+fishnet <- fishnet %>%
+  mutate(
+    prediction_kde = (kde_value / kde_sum) * count_sum
+  )
+
+# ---- 4. Readable comparison maps ----
+
+map_theme <- theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(face = "bold", size = 12),
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8)
+  )
+
+p1 <- ggplot() +
+  geom_sf(data = fishnet, aes(fill = graffiti_count), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.5) +
+  scale_fill_viridis_c(
+    name = "Actual",
+    option = "plasma",
+    trans = "sqrt"
+  ) +
+  labs(title = "Actual Counts") +
+  map_theme
+
+p2 <- ggplot() +
+  geom_sf(data = fishnet, aes(fill = prediction_nb), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.5) +
+  scale_fill_viridis_c(
+    name = "NB Prediction",
+    option = "plasma",
+    trans = "sqrt"
+  ) +
+  labs(title = "Negative Binomial") +
+  map_theme
+
+p3 <- ggplot() +
+  geom_sf(data = fishnet, aes(fill = prediction_kde), color = NA) +
+  geom_sf(data = chicagoBoundary, fill = NA, color = "white", linewidth = 0.5) +
+  scale_fill_viridis_c(
+    name = "KDE Prediction",
+    option = "plasma",
+    trans = "sqrt"
+  ) +
+  labs(title = "KDE Baseline") +
+  map_theme
+
+(p1 | p2 | p3) +
+  plot_annotation(
+    title = "Actual vs. Predicted Graffiti Complaint Counts",
+    subtitle = "Comparing the Negative Binomial model to the KDE baseline"
+  )
+
+# ---- 5. Calculate performance metrics ----
+
+model_comparison_metrics <- fishnet %>%
+  st_drop_geometry() %>%
+  filter(
+    !is.na(graffiti_count),
+    !is.na(prediction_nb),
+    !is.na(prediction_kde)
+  ) %>%
+  summarize(
+    nb_mae = mean(abs(graffiti_count - prediction_nb)),
+    nb_rmse = sqrt(mean((graffiti_count - prediction_nb)^2)),
+    kde_mae = mean(abs(graffiti_count - prediction_kde)),
+    kde_rmse = sqrt(mean((graffiti_count - prediction_kde)^2))
+  )
+
+model_comparison_metrics %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  separate(metric, into = c("model", "metric"), sep = "_") %>%
+  pivot_wider(names_from = metric, values_from = value) %>%
+  mutate(
+    mae = round(mae, 2),
+    rmse = round(rmse, 2)
+  ) %>%
+  kable(
+    caption = "Model Performance Comparison: Negative Binomial vs. KDE Baseline"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### CHALLENGE TASK: Temporal Validation (2018) *not mandatory, only if you want very strong spatial analytics muscles*
+- Download 2018 crimes https://data.cityofchicago.org/Public-Safety/Crimes-2018/3i3m-jwuy/about_data
+- Be sure to filter for BURGLARIES (FORCED ENTRY only to match the 2017 data)
+- Aggregate 2018 violations to the same fishnet grid
+- Use your 2017 model to predict 2018 counts
+- Calculate temporal validation metrics
+- Compare spatial vs. temporal validation performance
+
+---
+
+## Step 3: Write Your Analysis
+
+### Critical Requirement: Explain Each Step
+
+**For each major section, you must explain in your own words:**
+
+- **What** you are doing in that step
+- **Why** this step is important for the analysis
+- **What** you found or learned from the results
+
+Do not simply copy text from the example or from your AI friend. 
+Think about the purpose of each technique and articulate it in your own words.
+
+---
+
+## Step 4: Format Your Document
+
+### Formatting Requirements
+
+Your rendered HTML document should be **professional and easy to read**:
+
+#### ✓ Clean Code
+- Remove unnecessary code, comments, or debugging lines
+- Keep only essential code chunks
+- Use `code-fold: show` in your YAML header
+
+#### ✓ Clear Structure
+- Use headers to organize sections
+- Include a table of contents
+- Add your name and date
+
+#### ✓ Readable Text
+- Ensure all text renders properly (no broken markdown)
+- Check that headers appear as headers (not plain text)
+- Use proper markdown formatting
+
+#### ✓ Quality Visualizations
+- All plots should have titles and labels
+- Maps should be readable
+- Use consistent color schemes
+
+#### ✓ Professional Presentation
+- Proofread for typos
+- Remove any "Your answer here" placeholders
+- Make sure all code runs without errors
+- Make IT NEAT. WE GOTTA LOOK GOOD HERE.
+
+---
+
+## Submission Checklist
+
+Before you submit, verify that your document includes:
+
+### Required Components
+
+- [ ] **Introduction**: Brief description of your chosen 311 violation type and why you selected it
+- [ ] **Data Exploration**: Maps and summary statistics of your violation data
+- [ ] **Fishnet Grid**: Successfully created and visualized grid with aggregated counts
+- [ ] **Spatial Features**: At least 2-3 spatial features calculated (k-NN, distance measures, etc.)
+- [ ] **Local Moran's I**: Spatial autocorrelation analysis with interpretation
+- [ ] **Count Regression**: Both Poisson and Negative Binomial models with comparison
+- [ ] **Spatial Cross-Validation**: LOGO CV implemented on 2017 data with reported metrics
+- [ ] **Temporal Validation**: 2018 data aggregated and tested with 2017 model(OPTIONAL.)
+- [ ] **Validation Comparison**: Comparison of spatial vs. temporal validation performance
+- [ ] **Model Comparison**: Your model vs. KDE baseline for 2018 predictions
+- [ ] **Error Analysis**: Maps and discussion of where model performs well/poorly
+- [ ] **Written Explanations**: Your own words explaining each step
+
+
+### Technical Requirements
+
+- [ ] Document renders to HTML without errors
+- [ ] Code is clean and well-organized
+- [ ] All visualizations display properly
+- [ ] Headers and formatting render correctly
+- [ ] File is named successfully posted to your website
+
+---
+
+

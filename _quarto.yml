@@ -17,6 +17,10 @@ website:
             text: "Lab 1: [Lab Title]"
           - href: labs/lab_2/lab2_template.qmd
             text: "Lab 2: Spatial Analysis and Visualization"
+          - href: labs/lab_4/lab_4.qmd
+            text: "Lab 4: Spatial Predictive Analysis"
+          - href: labs/lab_5/week11_inclass_and_lab5.qmd
+            text: "Lab 5: The Rebalancing Challenge in Philadelphia"
 
 format:
   html:
