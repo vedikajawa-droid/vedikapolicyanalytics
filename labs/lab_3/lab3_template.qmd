@@ -1,0 +1,94 @@
+---
+title: "Lab 2: Spatial Analysis and Visualization"
+subtitle: "Healthcare Access and Equity in Pennsylvania"
+author: "Vedika Jawa"
+date: today
+format: 
+  html:
+    code-fold: false
+    toc: true
+    toc-location: left
+    theme: cosmo
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## Assignment Overview
+
+
+```{r}
+# Load required packages
+library(tidyverse)
+library(sf)
+library(here)
+library(lubridate)
+library(tidycensus)
+
+# Optional (for cleaner model outputs later)
+library(modelsummary)
+```
+
+```{r}
+data_dir <- "data"
+file_path <- file.path(data_dir, "opa_properties_public.geojson")
+
+sales_raw <- st_read(file_path)
+```
+
+```{r}
+sales_clean <- sales_raw %>%
+  mutate(
+    sale_date = as.Date(sale_date),
+    year = year(sale_date)
+  )
+
+#3.2 Filter to Residential Properties (2023–2024)
+#Decision: Keep only arms-length residential transactions between 2023–2024.
+
+sales_clean <- sales_clean %>%
+  filter(
+    year >= 2023 & year <= 2024,
+    category_code %in% c(1, 2, 3)
+  ) 
+
+# philly_sales_res <- philly_sales_2324 %>%
+#   filter(
+#     str_detect(category_code, 
+#                "1|2|3")
+#   ) %>%
+#   # Remove vacant land explicitly
+#   filter(!str_detect(category_code_description, "VACANT|SPECIAL PURPOSE"))
+
+#3.3 Remove Obvious Data Errors
+# Cleaning Decisions:
+# Remove sale_price < $10,000 (likely transfer or recording errors)
+# Remove sale_price > $5,000,000 (extreme luxury outliers)
+# Remove missing coordinates
+# Remove missing key structural attributes
+
+sales_clean <- sales_clean %>%
+  filter(
+    !is.na(sale_price),
+    sale_price > 1
+  ) %>%
+  filter(!is.na(number_of_bedrooms),
+         !is.na(number_of_bathrooms))
+
+
+# 3.4 Handle Missing Values
+# Decision:
+# Drop observations missing key modeling variables
+# Do not impute sale price
+# Impute interior square footage with median if missing
+
+sales_clean <- sales_clean %>%
+  mutate(
+    total_livable_area = ifelse(
+      is.na(total_livable_area),
+      median(total_livable_area, na.rm = TRUE),
+      total_livable_area
+    )
+  )
+```

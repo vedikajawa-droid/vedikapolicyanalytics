@@ -1,0 +1,1298 @@
+---
+title: "Midterm Challenge: Philadelphia Housing Price Prediction"
+subtitle: "MUSA 5080 - Public Policy Analytics"
+author: "Vedika Jawa"
+date: "March 16, 2026"
+format: 
+  html:
+    code-fold: false
+    toc: true
+    toc-location: left
+    theme: cosmo
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## The Challenge
+
+You are consultancy (please name your consultancy) competing to win the bid to work for a project for the **Philadelphia Office of Property Assessment**. The city wants to improve its Automated Valuation Model (AVM) for property tax assessments. Your task is to build a predictive model for residential sale prices and **present your findings** to city officials in a 5-minute briefing. 
+
+**Deliverables:**
+
+1. **Presentation slides** (10-15 slides MAX) - Your main findings for stakeholders
+2. **Technical appendix** (HTML document) - All code, diagnostics, and detailed analysis
+3. **5-minute in-class presentation** - Deliver your slides on October 27th
+
+**Your goal:** Predict 2023-2024 home sale prices accurately while communicating findings clearly to a policy audience.
+
+---
+
+## Part 1: Healthcare Access for Vulnerable Populations
+
+### Research Question
+
+**What drives the prices of residential properties to improve the Automated Valuation Model for property tax assessments in Philadelphia?**
+
+Your analysis should identify counties that should be priorities for healthcare investment and policy intervention.
+
+### Required Analysis Steps
+
+Complete the following analysis, documenting each step with code and brief explanations:
+
+#### Step 1: Load Libraries
+
+```{r}
+#Clearing previous data
+rm(list=ls())
+
+library(tidyverse)
+library(sf)
+library(tidycensus)
+library(tigris)
+library(lubridate)
+library(janitor)
+library(knitr)
+
+options(tigris_use_cache = TRUE)
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 2: Load & Inspect Philadelphia Property Sales
+
+```{r}
+
+sales_raw <- st_read("Data/opa_properties_public.geojson") %>%
+  clean_names()
+
+glimpse (sales_raw)
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 3: Clean & Filter Sales Data
+
+```{r}
+# 3.1 Standardize & Parse Dates
+
+sales_clean <- sales_raw %>%
+  mutate(
+    sale_date = as.Date(sale_date),
+    year = year(sale_date)
+  )
+
+#3.2 Filter to Residential Properties (2023–2024)
+#Decision: Keep only arms-length residential transactions between 2023–2024.
+
+sales_clean <- sales_clean %>%
+  filter(
+    year >= 2023 & year <= 2024,
+    category_code %in% c(1, 2, 3)
+  ) 
+
+# philly_sales_res <- philly_sales_2324 %>%
+#   filter(
+#     str_detect(category_code, 
+#                "1|2|3")
+#   ) %>%
+#   # Remove vacant land explicitly
+#   filter(!str_detect(category_code_description, "VACANT|SPECIAL PURPOSE"))
+
+#3.3 Remove Obvious Data Errors
+# Cleaning Decisions:
+# Remove sale_price < $10,000 (likely transfer or recording errors)
+# Remove sale_price > $5,000,000 (extreme luxury outliers)
+# Remove missing coordinates
+# Remove missing key structural attributes
+
+sales_clean <- sales_clean %>%
+  filter(
+    !is.na(sale_price),
+    sale_price > 10000
+  ) %>%
+  filter(!is.na(number_of_bedrooms),
+         !is.na(number_of_bathrooms),
+         !is.na(location))
+
+
+# 3.4 Handle Missing Values
+# Decision:
+# Drop observations missing key modeling variables
+# Do not impute sale price
+# Impute interior square footage with median if missing
+
+sales_clean <- sales_clean %>%
+  mutate(
+    total_livable_area = ifelse(
+      is.na(total_livable_area),
+      median(total_livable_area, na.rm = TRUE),
+      total_livable_area
+    )
+  )
+
+#3.5 Summary: Before vs After Cleaning
+
+dim_after <- dim(sales_clean)
+dim_before <- dim(sales_raw)
+summary_table <- tibble(
+  Stage = c("Raw OPA Data", "Cleaned Residential Sales 2023-2024"),
+  Observations = c(dim_before[1], dim_after[1]),
+  Variables = c(dim_before[2], dim_after[2])
+)
+
+kable(summary_table)
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 4: Convert OPA Geometry to sf
+
+```{r}
+
+sales_sf <- st_as_sf(sales_clean, wkt = "shape", crs = 2272)
+
+st_crs(sales_sf)
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 5: Load Census Data (Block Group Level)
+
+ACS 2023 5-year estimates
+Geography: Block Group
+County: Philadelphia
+
+```{r}
+# 5.1 Define Variables
+
+acs_vars <- c(
+  # Population
+  total_population = "B01003_001",
+  
+  # Income
+  median_income = "B19013_001",
+
+  # Poverty
+  poverty_count = "B17001_002",
+  poverty_total = "B17001_001",
+
+  # Education (Bachelor's Degree)
+  bachelors = "B15003_022",
+  education_total = "B15003_001",
+
+  # Employment
+  employed = "B23025_004",
+  labor_force = "B23025_003",
+
+  # Owner Occupancy
+  owner_occupied = "B25003_002",
+  housing_total = "B25003_001"
+)
+
+#5.2 Download Census Data
+phl_acs <- get_acs(
+  geography = "block group",
+  variables = acs_vars,
+  state = "PA",
+  county = "Philadelphia",
+  year = 2023,
+  output = "wide",
+  geometry = TRUE
+)
+
+#5.3 Reshape & Create Derived Variables
+# phl_acs_wide <- phl_acs %>%
+#   select(GEOID, variable, estimate, geometry) %>%
+#   st_drop_geometry() %>%
+#   pivot_wider(names_from = variable, values_from = estimate)
+
+phl_acs_wide <- phl_acs %>%
+  st_drop_geometry()
+
+phl_geometry <- phl_acs %>%
+  select(GEOID, geometry) %>%
+  distinct()
+
+#5.4 Create Derived Socioeconomic Variables
+phl_acs_sf <- left_join(phl_geometry, phl_acs_wide, by = "GEOID") %>%
+  st_as_sf() %>%
+  mutate(
+
+    # Poverty rate
+    poverty_rate = poverty_countE / poverty_totalE,
+
+    # Percent bachelor degree holders
+    pct_bachelors = bachelorsE / education_totalE,
+
+    # Employment rate
+    employment_rate = employedE / labor_forceE,
+
+    # Owner occupancy rate
+    owner_occ_rate = owner_occupiedE / housing_totalE
+  )
+
+#5.4 Match CRS
+phl_acs_sf <- st_transform(phl_acs_sf, 2272)
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 6: Load Spatial Amenities (OpenDataPhilly Example: Parks)
+Assume parks shapefile downloaded from OpenDataPhilly.
+
+```{r}
+
+parks <- st_read("Data/PPR_Properties/PPR_Properties.shp") %>%
+  st_transform(2272)
+
+bus_stops <- st_read("Data/Fall_2022_Stop_Summary_(Bus)/Fall_2022_Stop_Summary_(Bus).shp") %>%
+  st_transform(2272)
+
+trolley_stops <- st_read("Data/Trolley_Stations/Trolley_Stations.shp") %>%
+  st_transform(2272)
+
+crime_data <- crime <- st_read("Data/crime data/incidents_part1_part2/incidents_part1_part2.shp") %>%
+  st_transform(2272)
+
+schools <- st_read("Data/PaSchoolDistricts2024_03/PaSchoolDistricts2024_03.shp") %>%
+  st_transform(2272)
+
+restaurants <- st_read("Data/NeighborhoodFoodRetail-shp/54b2029c-710c-40e7-8746-b90b123864752020329-1-yv09k6.t812l.shp") %>%
+  st_transform(2272)
+
+hospitals <- st_read("Data/Hospitals/Hospital_Data.shp") %>%
+  st_transform(2272)
+
+```
+
+**Questions to answer:**
+
+---
+#### Step 7: External Data - Distance to Downtown Philadelphia
+
+```{r}
+
+#7.1 Define downtown centroid (Philadelphia City Hall)
+downtown <- st_sfc(
+  st_point(c(-75.16379, 39.95233)),
+  crs = 4326
+) %>%
+  st_transform(2272)
+
+#Compute centroid of each block group
+phl_acs_sf <- phl_acs_sf %>%
+  mutate(bg_centroid = st_centroid(geometry))
+
+#7.2 Calculate Distance to Nearest Park
+phl_acs_sf$dist_to_downtown <-
+  st_distance(phl_acs_sf$bg_centroid, downtown)
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 8: Spatial Feature engineering
+
+```{r}
+
+# 8.1 Create centroids for block groups
+bg_centroids <- st_centroid(phl_acs_sf)
+
+#8.2 Distance to Transit
+# Combine transit layers
+transit_stops <- bus_stops
+
+# Distance to nearest transit stop
+phl_acs_sf$distance_to_transit <-
+  apply(st_distance(bg_centroids, transit_stops), 1, min)
+
+#8.3 Distance to Parks
+phl_acs_sf$distance_to_park <-
+  apply(st_distance(bg_centroids, parks), 1, min)
+
+#8.4 Distance to Hospitals
+phl_acs_sf$hospital_distance <-
+  apply(st_distance(bg_centroids, hospitals), 1, min)
+
+#8.5 Crime Density
+crime_join <- st_join(crime_data, phl_acs_sf, join = st_within)
+
+crime_counts <- crime_join %>%
+  st_drop_geometry() %>%
+  count(GEOID, name = "crime_count")
+
+#Join to census
+phl_acs_sf <- phl_acs_sf %>%
+  left_join(crime_counts, by = "GEOID")
+
+#Replacing missing values
+phl_acs_sf$crime_count[is.na(phl_acs_sf$crime_count)] <- 0
+
+#Calculate Crime Density
+phl_acs_sf$area_sqmi <- as.numeric(st_area(phl_acs_sf)) / 27878400
+
+phl_acs_sf$crime_density <- phl_acs_sf$crime_count / phl_acs_sf$area_sqmi
+
+#8.6 Restaurant Density
+restaurant_join <- st_join(restaurants, phl_acs_sf, join = st_within)
+
+restaurant_counts <- restaurant_join %>%
+  st_drop_geometry() %>%
+  count(GEOID, name = "restaurant_count")
+
+phl_acs_sf <- phl_acs_sf %>%
+  left_join(restaurant_counts, by = "GEOID")
+
+phl_acs_sf$restaurant_count[is.na(phl_acs_sf$restaurant_count)] <- 0
+
+phl_acs_sf$restaurant_density <-
+  phl_acs_sf$restaurant_count / phl_acs_sf$area_sqmi
+
+#8.7 School Density
+school_join <- st_join(schools, phl_acs_sf, join = st_within)
+
+school_counts <- school_join %>%
+  st_drop_geometry() %>%
+  count(GEOID, name = "school_count")
+
+phl_acs_sf <- phl_acs_sf %>%
+  left_join(school_counts, by = "GEOID")
+
+phl_acs_sf$school_count[is.na(phl_acs_sf$school_count)] <- 0
+
+phl_acs_sf$school_density <-
+  phl_acs_sf$school_count / phl_acs_sf$area_sqmi
+
+#8.8 Feature Check
+phl_acs_sf %>%
+  st_drop_geometry() %>%
+  select(
+    GEOID,
+    distance_to_transit,
+    distance_to_park,
+    hospital_distance,
+    crime_density,
+    restaurant_density,
+    school_density
+  ) %>%
+  summary()
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 9: Final Dataset Summary
+Assume parks shapefile downloaded from OpenDataPhilly.
+
+```{r}
+
+#Ataching block features to property sales
+sales_sf <- st_transform(sales_sf, 2272)
+
+sales_joined <- st_join(sales_sf, phl_acs_sf)
+
+#Cross Checking if the table worked
+final_dim <- dim(sales_joined)
+
+final_summary <- tibble(
+  Stage = c("Cleaned Sales", "Final Spatial Dataset"),
+  Observations = c(dim_after[1], final_dim[1]),
+  Variables = c(dim_after[2], final_dim[2])
+)
+
+kable(final_summary)
+
+```
+
+**Questions to answer:**
+
+---
+
+## Part 2: Exploratory Data Analysis
+
+### Research Question
+
+Create at least 5 professional visualizations: 
+Distribution of sale prices (histogram) 
+Geographic distribution (map) 
+Price vs. structural features (scatter plots) 
+Price vs. spatial features (scatter plots) 
+One creative visualization
+
+#### Step 1: Distribution of Sale Prices (Histogram)
+Assume parks shapefile downloaded from OpenDataPhilly.
+
+```{r}
+
+library(tidyverse)
+library(sf)
+library(scales)
+library(viridis)
+library(janitor)
+# Create a plotting dataset
+sales_plot <- sales_joined %>%
+  mutate(
+    log_sale_price = log(sale_price),
+    total_livable_area = as.numeric(total_livable_area),
+    number_of_bedrooms = as.numeric(number_of_bedrooms),
+    number_of_bathrooms = as.numeric(number_of_bathrooms),
+    distance_to_transit = as.numeric(distance_to_transit),
+    distance_to_park = as.numeric(distance_to_park),
+    hospital_distance = as.numeric(hospital_distance),
+    crime_density = as.numeric(crime_density),
+    restaurant_density = as.numeric(restaurant_density),
+    dist_to_downtown = as.numeric(dist_to_downtown)
+  )
+
+```
+```{r}
+
+ggplot(st_drop_geometry(sales_plot), aes(x = log_sale_price)) +
+  geom_histogram(bins = 50, fill = "#2C7FB8", color = "white") +
+  labs(
+    title = "Distribution of Philadelphia Residential Sale Prices",
+    subtitle = "Log transformation reduces extreme skew",
+    x = "Log Sale Price",
+    y = "Number of Sales"
+  ) +
+  theme_minimal(base_size = 13)
+```
+```{r}
+bg_price_map <- sales_plot %>%
+  st_drop_geometry() %>%
+  group_by(GEOID) %>%
+  summarize(
+    median_sale_price = median(sale_price, na.rm = TRUE),
+    sales_count = n()
+  )
+
+bg_map <- phl_acs_sf %>%
+  left_join(bg_price_map, by = "GEOID")
+
+ggplot(bg_map) +
+  geom_sf(aes(fill = median_sale_price), color = NA) +
+  scale_fill_viridis_c(
+    option = "magma",
+    labels = label_dollar(),
+    na.value = "grey90"
+  ) +
+  labs(
+    title = "Median Home Sale Price by Census Block Group",
+    subtitle = "Philadelphia residential sales, 2023–2024",
+    fill = "Median Price"
+  ) +
+  theme_minimal(base_size = 13)
+```
+```{r}
+ggplot(
+  st_drop_geometry(sales_plot) %>%
+    filter(!is.na(total_livable_area), total_livable_area > 0, total_livable_area < 6000),
+  aes(x = total_livable_area, y = sale_price)
+) +
+  geom_point(alpha = 0.15, size = 1, color = "#3182BD") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_y_continuous(labels = label_dollar()) +
+  labs(
+    title = "Larger Homes Sell for More",
+    subtitle = "Sale price rises with total livable area",
+    x = "Total Livable Area (sq ft)",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+```{r}
+ggplot(
+  st_drop_geometry(sales_plot) %>%
+    filter(!is.na(number_of_bathrooms), number_of_bathrooms <= 6),
+  aes(x = factor(number_of_bathrooms), y = sale_price)
+) +
+  geom_boxplot(fill = "#9ECAE1", outlier.alpha = 0.15) +
+  scale_y_continuous(labels = label_dollar()) +
+  labs(
+    title = "Homes With More Bathrooms Sell for More",
+    subtitle = "Distribution of sale prices by number of bathrooms",
+    x = "Number of Bathrooms",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 13)
+```
+```{r}
+ggplot(
+  st_drop_geometry(sales_plot),
+  aes(x = dist_to_downtown, y = log_sale_price)
+) +
+  geom_point(alpha = 0.15, color = "#756BB1") +
+  geom_smooth(method = "loess", se = FALSE, color = "black") +
+  labs(
+    title = "Homes Closer to Downtown Tend to Sell for More",
+    x = "Distance to Downtown (feet)",
+    y = "Log Sale Price"
+  ) +
+  coord_cartesian(xlim = c(0, 40000)) +
+  theme_minimal()
+```
+```{r}
+zip_summary <- sales_plot %>%
+  st_drop_geometry() %>%
+  group_by(zip_code) %>%
+  summarize(
+    median_sale_price = median(sale_price, na.rm = TRUE),
+    sales_count = n()
+  ) %>%
+  filter(!is.na(zip_code), sales_count >= 50) %>%
+  arrange(desc(median_sale_price)) %>%
+  slice_head(n = 10)
+
+ggplot(zip_summary, aes(x = reorder(zip_code, median_sale_price), y = median_sale_price)) +
+  geom_col(fill = "#DD3497") +
+  coord_flip() +
+  scale_y_continuous(labels = label_dollar()) +
+  labs(
+    title = "Top 10 ZIP Codes by Median Sale Price",
+    subtitle = "Among ZIP codes with at least 50 sales",
+    x = "ZIP Code",
+    y = "Median Sale Price"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 2: Geographic Distribution (Map)
+Assume parks shapefile downloaded from OpenDataPhilly.
+
+```{r}
+
+ggplot(sales_joined) +
+  geom_sf(aes(color = sale_price), size = 0.8, alpha = 0.7) +
+  scale_color_viridis(
+    option = "plasma",
+    labels = dollar_format()
+  ) +
+  labs(
+    title = "Geographic Distribution of Sale Prices",
+    color = "Sale Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggplot(sales_joined) +
+  geom_sf(aes(color = log(sale_price)), size = 0.8, alpha = 0.7) +
+  scale_color_viridis(option = "magma") +
+  labs(
+    title = "Geographic Distribution of Log Sale Prices",
+    color = "Log Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 3: Price vs Structural Features (Scatter Plots)
+Assume parks shapefile downloaded from OpenDataPhilly.
+
+```{r}
+#A. Price vs Living Area
+ggplot(sales_joined, aes(x = total_livable_area, y = sale_price)) +
+  geom_point(alpha = 0.4, color = "#34495E") +
+  geom_smooth(method = "lm", color = "red") +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs Living Area",
+    x = "Total Livable Area (sq ft)",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+#B. Price vs Year Built
+ggplot(sales_joined, aes(x = year_built, y = sale_price)) +
+  geom_point(alpha = 0.4, color = "#7F8C8D") +
+  geom_smooth(method = "loess", color = "blue") +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs Year Built",
+    x = "Year Built",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 4:Price vs Spatial Features
+
+Assumes you created:
+median_income
+poverty_rate
+dist_to_park
+
+```{r}
+#A. Price vs Neighborhood Income
+
+ggplot(sales_joined, aes(x = median_income, y = sale_price)) +
+  geom_point(alpha = 0.4, color = "#16A085") +
+  geom_smooth(method = "lm", color = "black") +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_x_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs Neighborhood Median Income",
+    x = "Median Household Income",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+#B. Price vs Distance to Park
+ggplot(sales_joined, aes(x = dist_to_park, y = sale_price)) +
+  geom_point(alpha = 0.4, color = "#27AE60") +
+  geom_smooth(method = "lm", color = "black") +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs Distance to Nearest Park",
+    x = "Distance to Park (feet)",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+**Questions to answer:**
+
+---
+
+#### Step 5: Creative Visualization (Professional-Level)
+
+Price per Square Foot Map
+This is strong analytically.
+
+```{r}
+# This visual:
+# Controls for house size
+# Reveals neighborhood value patterns
+# Looks very professional
+
+sales_joined <- sales_joined %>%
+  mutate(price_per_sqft = sale_price / total_livable_area)
+
+ggplot(sales_joined) +
+  geom_sf(aes(color = price_per_sqft), size = 0.8, alpha = 0.8) +
+  scale_color_viridis(
+    option = "inferno",
+    labels = dollar_format()
+  ) +
+  labs(
+    title = "Price Per Square Foot Across Philadelphia",
+    color = "Price / Sq Ft"
+  ) +
+  theme_minimal(base_size = 14)
+
+#Optional: Boxplot by Bedroom Count
+ggplot(sales_joined, aes(x = factor(number_of_bedrooms), y = sale_price)) +
+  geom_boxplot(fill = "#3498DB") +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price by Number of Bedrooms",
+    x = "Bedrooms",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+**Questions to answer:**
+
+---
+
+## Part 4: Model Building
+
+#### Step 4.2: Spatial Model
+
+```{r}
+#Prepare Modeling Dataset
+
+model_spatial <- sales_joined %>%
+  st_drop_geometry() %>%
+  select(
+    sale_price,
+    distance_to_transit,
+    distance_to_park,
+    hospital_distance,
+    crime_density,
+    restaurant_density,
+    school_density,
+    dist_to_downtown
+  ) %>%
+  drop_na()
+
+nrow(model_spatial)
+
+#Transform Price (Log) as the Housing prices are right-skewed
+model_spatial <- model_spatial %>%
+  mutate(
+    log_price = log(sale_price)
+  )
+
+#Spatial Regression Model
+spatial_model <- lm(
+  log_price ~
+    distance_to_transit +
+    distance_to_park +
+    hospital_distance +
+    crime_density +
+    restaurant_density +
+    school_density +
+    dist_to_downtown,
+  data = model_spatial
+)
+
+#Summary
+summary(spatial_model)
+
+#Standardizing Variables
+model_spatial_scaled <- model_spatial %>%
+  mutate(across(
+    c(
+      distance_to_transit,
+      distance_to_park,
+      hospital_distance,
+      crime_density,
+      restaurant_density,
+      school_density,
+      dist_to_downtown
+    ),
+    scale
+  ))
+
+#Visualisation
+library(ggplot2)
+library(units)
+
+ggplot(spatial_model, aes(x = dist_to_downtown, y = log_price)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Housing Prices vs Distance to Downtown",
+    x = "Distance to Downtown (feet)",
+    y = "Log Sale Price"
+  )
+
+```
+
+**Questions to answer:**
+
+This regression model examines how **spatial accessibility and neighborhood amenities** influence housing prices in Philadelphia. The dependent variable is **log-transformed sale price**, meaning the coefficients represent **approximate percentage changes in housing prices**.
+
+The model is statistically significant overall (F-statistic p < 0.001), indicating that the spatial variables collectively help explain variation in property prices. However, the **Adjusted R² is 0.040**, meaning spatial features alone explain about **4% of the variation in housing prices**. This suggests that while location characteristics matter, **structural housing attributes and neighborhood socioeconomic conditions likely play a larger role in determining prices**.
+
+Interpretation of Individual Variables
+
+**Distance to Transit**
+
+Coefficient: **3.58e-05**, p = **0.0047**
+
+This variable is statistically significant. Surprisingly, the positive coefficient suggests that properties located **farther from transit stops are slightly more expensive**. This may reflect neighborhood patterns where higher-value residential areas are located farther from major transit corridors.
+
+**Distance to Park**
+
+Coefficient: **−1.35e-05**, p = **0.099**
+
+The relationship is negative, meaning **homes closer to parks tend to have slightly higher prices**, but the effect is **only marginally significant** at the 10% level. This suggests that proximity to green space may modestly increase property values.
+
+**Distance to Hospital**
+
+Coefficient: **−2.83e-05**, p < **0.001**
+
+This variable is highly significant. The negative coefficient indicates that **homes located closer to hospitals tend to have higher sale prices**. Hospitals may act as employment centers or be located in well-developed urban areas with higher housing demand.
+
+
+**Crime Density**
+
+Coefficient: **−4.20e-04**, p < **0.001**
+
+Crime density has a **strong negative relationship with housing prices**. Areas with higher crime levels are associated with **lower property values**, which aligns with expectations in urban housing markets.
+
+
+**Restaurant Density**
+
+Coefficient: **−0.108**, p < **0.001**
+
+This variable is statistically significant but negative, suggesting that **areas with higher concentrations of restaurants may have slightly lower housing prices** in this model. This could occur if restaurant-heavy areas are located in dense commercial districts or mixed-use neighborhoods where residential demand differs.
+
+
+**Distance to Downtown**
+
+Coefficient: **−2.97e-06**, p < **0.001**
+
+The negative coefficient indicates that **homes located closer to downtown Philadelphia tend to have higher prices**, reflecting the value of central-city accessibility.
+
+
+**School Density**
+
+This variable was **dropped from the model due to singularity**, meaning it is perfectly correlated with one or more other predictors. This often occurs when spatial variables are highly correlated, such as school density and population density.
+
+
+**Overall Interpretation**
+
+The results indicate that **spatial accessibility and neighborhood amenities have statistically significant relationships with housing prices**, particularly crime density and proximity to downtown. However, the relatively low R² suggests that spatial features alone explain only a small portion of price variation.
+
+This outcome is expected in housing market analysis, where **property-specific characteristics (size, bedrooms, age) and socioeconomic neighborhood conditions typically have stronger explanatory power than spatial accessibility alone**.
+
+---
+
+## Part 5: Model Evaluation
+
+#### Step 5.1: Spatial Model
+
+```{r}
+install.packages("tidymodels")
+library(tidymodels)
+
+#Spatial Model
+model_spatial <- sales_joined %>%
+  st_drop_geometry() %>%
+  select(
+    sale_price,
+    distance_to_transit,
+    distance_to_park,
+    hospital_distance,
+    crime_density,
+    restaurant_density,
+    dist_to_downtown
+  ) %>%
+  mutate(
+    distance_to_transit = as.numeric(distance_to_transit),
+    distance_to_park = as.numeric(distance_to_park),
+    hospital_distance = as.numeric(hospital_distance),
+    dist_to_downtown = as.numeric(dist_to_downtown)
+  ) %>%
+  drop_na()
+
+nrow(model_spatial)
+
+colnames(model_spatial)
+
+model_spatial <- model_spatial %>%
+  mutate(log_price = log(sale_price))
+
+colnames(model_spatial)
+
+#10 fold cross validation
+
+set.seed(123)
+
+cv_folds <- vfold_cv(model_spatial, v = 10)
+
+#Defining the Model
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+
+#Model Formula
+spatial_formula <- log_price ~
+  distance_to_transit +
+  distance_to_park +
+  hospital_distance +
+  crime_density +
+  restaurant_density +
+  dist_to_downtown
+
+#Run workflow
+spatial_workflow <- workflow() %>%
+  add_model(lm_model) %>%
+  add_formula(spatial_formula)
+
+#Run Cross Validation
+control <- control_resamples(save_pred = TRUE)
+
+cv_results <- fit_resamples(
+  spatial_workflow,
+  resamples = cv_folds,
+  metrics = metric_set(rmse, mae, rsq),
+  control = control
+)
+
+#Collect Metrics
+collect_metrics(cv_results)
+
+#Predictions
+cv_predictions <- collect_predictions(cv_results)
+
+#Visualisation of Predicted vs Actual
+ggplot(cv_predictions, aes(x = log_price, y = .pred)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Predicted vs Actual Housing Prices",
+    x = "Actual Log Sale Price",
+    y = "Predicted Log Sale Price"
+  )
+
+
+```
+
+**Questions to answer:**
+
+
+---
+## Part 6: Model Diagnostics
+
+#### Step 6.1: Spatial Model
+
+```{r}
+spatial_model <- lm(
+  log_price ~
+    distance_to_transit +
+    distance_to_park +
+    hospital_distance +
+    crime_density +
+    restaurant_density +
+    dist_to_downtown,
+  data = model_spatial
+)
+
+#Residual Plot
+library(ggplot2)
+
+ggplot(data.frame(
+  fitted = fitted(spatial_model),
+  residuals = residuals(spatial_model)
+), aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals"
+  )
+
+#QQ Plot
+
+ggplot(data.frame(resid = residuals(spatial_model)), aes(sample = resid)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  theme_minimal() +
+  labs(title = "Q-Q Plot of Spatial Model Residuals")
+
+#Cooks Distance
+#Calculate Cook’s Distance
+cook <- cooks.distance(spatial_model)
+
+#Convert to a Data Frame for ggplot
+cook_df <- data.frame(
+  observation = 1:length(cook),
+  cook_distance = cook
+)
+
+#Cook’s Distance Plot 
+
+ggplot(cook_df, aes(x = observation, y = cook_distance)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 4/nrow(cook_df), color = "red", linetype = "dashed") +
+  theme_minimal() +
+  labs(
+    title = "Cook's Distance for Spatial Model",
+    x = "Observation",
+    y = "Cook's Distance"
+  )
+
+which(cook > 4/nrow(cook_df))
+
+sum(cook > 4/nrow(cook_df))
+
+```
+
+
+```{r}
+## Model 4
+full_model_data <- sales_joined %>%
+  st_drop_geometry() %>%
+  select(
+    sale_price,
+
+    # Structural variables
+    total_livable_area,
+    number_of_bedrooms,
+    number_of_bathrooms,
+    year_built,
+
+    # Census variables
+    median_incomeE,
+    pct_bachelors,
+    employment_rate,
+    owner_occ_rate,
+    poverty_rate,
+
+    # Spatial variables
+    distance_to_transit,
+    distance_to_park,
+    hospital_distance,
+    crime_density,
+    restaurant_density,
+    dist_to_downtown,
+
+    # Fixed effects variable
+    census_tract
+  ) %>%
+  mutate(
+    log_price = log(sale_price),
+
+    # make sure numeric variables are truly numeric
+    total_livable_area   = as.numeric(total_livable_area),
+    number_of_bedrooms   = as.numeric(number_of_bedrooms),
+    number_of_bathrooms  = as.numeric(number_of_bathrooms),
+    year_built           = as.numeric(year_built),
+    median_incomeE       = as.numeric(median_incomeE),
+    pct_bachelors        = as.numeric(pct_bachelors),
+    employment_rate      = as.numeric(employment_rate),
+    owner_occ_rate       = as.numeric(owner_occ_rate),
+    poverty_rate         = as.numeric(poverty_rate),
+    distance_to_transit  = as.numeric(distance_to_transit),
+    distance_to_park     = as.numeric(distance_to_park),
+    hospital_distance    = as.numeric(hospital_distance),
+    crime_density        = as.numeric(crime_density),
+    restaurant_density   = as.numeric(restaurant_density),
+    dist_to_downtown     = as.numeric(dist_to_downtown),
+    census_tract         = as.factor(census_tract)
+  ) %>%
+  drop_na()
+
+nrow(full_model_data)
+glimpse(full_model_data)
+```
+
+```{r}
+full_model_data <- sales_joined %>%
+  st_drop_geometry() %>%
+  select(
+    sale_price,
+    total_livable_area,
+    number_of_bedrooms,
+    number_of_bathrooms,
+    median_incomeE,
+    pct_bachelors,
+    employment_rate,
+    owner_occ_rate,
+    distance_to_transit,
+    distance_to_park,
+    hospital_distance,
+    crime_density,
+    restaurant_density,
+    dist_to_downtown,
+    census_tract
+  ) %>%
+  mutate(
+    log_price = log(sale_price),
+    total_livable_area  = as.numeric(total_livable_area),
+    number_of_bedrooms  = as.numeric(number_of_bedrooms),
+    number_of_bathrooms = as.numeric(number_of_bathrooms),
+    median_incomeE      = as.numeric(median_incomeE),
+    pct_bachelors       = as.numeric(pct_bachelors),
+    employment_rate     = as.numeric(employment_rate),
+    owner_occ_rate      = as.numeric(owner_occ_rate),
+    distance_to_transit = as.numeric(distance_to_transit),
+    distance_to_park    = as.numeric(distance_to_park),
+    hospital_distance   = as.numeric(hospital_distance),
+    crime_density       = as.numeric(crime_density),
+    restaurant_density  = as.numeric(restaurant_density),
+    dist_to_downtown    = as.numeric(dist_to_downtown),
+    census_tract        = as.character(census_tract)
+  ) %>%
+  filter(
+    !is.na(log_price),
+    !is.na(total_livable_area),
+    !is.na(number_of_bedrooms),
+    !is.na(number_of_bathrooms),
+    !is.na(median_incomeE),
+    !is.na(pct_bachelors),
+    !is.na(employment_rate),
+    !is.na(owner_occ_rate),
+    !is.na(distance_to_transit),
+    !is.na(distance_to_park),
+    !is.na(hospital_distance),
+    !is.na(crime_density),
+    !is.na(restaurant_density),
+    !is.na(dist_to_downtown),
+    !is.na(census_tract)
+  ) %>%
+  mutate(
+    census_tract = droplevels(factor(census_tract))
+  )
+
+full_model <- lm(
+  log_price ~
+    total_livable_area +
+    number_of_bedrooms +
+    number_of_bathrooms +
+    median_incomeE +
+    pct_bachelors +
+    employment_rate +
+    owner_occ_rate +
+    distance_to_transit +
+    distance_to_park +
+    hospital_distance +
+    crime_density +
+    restaurant_density +
+    dist_to_downtown +
+    census_tract +
+    median_incomeE:dist_to_downtown,
+  data = full_model_data
+)
+
+summary(full_model)
+```
+
+```{r}
+library(modelsummary)
+
+modelsummary(
+  full_model,
+  stars = TRUE,
+  gof_map = c("nobs", "r.squared", "adj.r.squared")
+)
+```
+
+```{r}
+library(tidymodels)
+
+set.seed(123)
+
+full_folds <- vfold_cv(full_model_data, v = 10)
+
+lm_spec <- linear_reg() %>%
+  set_engine("lm")
+
+full_workflow <- workflow() %>%
+  add_model(lm_spec) %>%
+  add_formula(
+    log_price ~
+      total_livable_area +
+      number_of_bedrooms +
+      number_of_bathrooms +
+      median_incomeE +
+      pct_bachelors +
+      employment_rate +
+      owner_occ_rate +
+      distance_to_transit +
+      distance_to_park +
+      hospital_distance +
+      crime_density +
+      restaurant_density +
+      dist_to_downtown +
+      census_tract +
+      median_incomeE:dist_to_downtown
+  )
+
+full_cv_results <- fit_resamples(
+  full_workflow,
+  resamples = full_folds,
+  metrics = metric_set(rmse, mae, rsq),
+  control = control_resamples(save_pred = TRUE)
+)
+
+collect_metrics(full_cv_results)
+```
+
+
+```{r}
+full_cv_predictions <- collect_predictions(full_cv_results)
+
+ggplot(full_cv_predictions, aes(x = log_price, y = .pred)) +
+  geom_point(alpha = 0.2, color = "#2C7FB8") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Predicted vs Actual Log Sale Prices",
+    x = "Actual Log Sale Price",
+    y = "Predicted Log Sale Price"
+  )
+```
+
+
+```{r}
+# Residual plot
+ggplot(
+  data.frame(
+    fitted = fitted(full_model),
+    residuals = residuals(full_model)
+  ),
+  aes(x = fitted, y = residuals)
+) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 0, color = "red") +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals"
+  )
+
+# QQ plot
+ggplot(
+  data.frame(resid = residuals(full_model)),
+  aes(sample = resid)
+) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  theme_minimal(base_size = 13) +
+  labs(title = "Q-Q Plot of Full Model Residuals")
+
+# Cook's distance
+cook_full <- cooks.distance(full_model)
+
+cook_full_df <- data.frame(
+  observation = 1:length(cook_full),
+  cook_distance = cook_full
+)
+
+ggplot(cook_full_df, aes(x = observation, y = cook_distance)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 4 / nrow(cook_full_df), color = "red", linetype = "dashed") +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Cook's Distance for Full Model",
+    x = "Observation",
+    y = "Cook's Distance"
+  )
+
+sum(cook_full > 4 / nrow(cook_full_df))
+```
+
+**Questions to answer:**
+Cook’s distance was used to identify influential observations in the spatial regression model. A threshold of 4/n.
+
+4/n was used to flag potentially influential points. The Cook’s distance plot shows that only a small number of observations exceed this threshold, suggesting that the model estimates are not overly influenced by individual observations.
+
+---

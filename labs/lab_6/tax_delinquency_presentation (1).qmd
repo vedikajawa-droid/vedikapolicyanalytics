@@ -1,0 +1,192 @@
+---
+title: "Predicting Property Tax Delinquency in Philadelphia"
+subtitle: "A Rare Event Early Warning Model"
+author: "Jenny, Vedika, Maude, Shubh"
+format:
+  revealjs:
+    theme: simple
+    slide-number: true
+execute:
+  echo: false
+---
+
+## The Problem
+
+- Property tax delinquency affects city revenue  
+- It can signal financial stress for households  
+- The city cannot intervene everywhere  
+- The goal is to identify which properties may need early outreach  
+
+---
+
+## Policy Question
+
+Which properties should the city prioritize for outreach?
+
+- Payment plans  
+- Housing counseling  
+- Early intervention  
+
+---
+
+## Data
+
+- Property tax delinquency data  
+- Property characteristics from OPA  
+- Census demographic data  
+- Spatial features  
+
+---
+
+## What We Predict
+
+- Binary outcome  
+- Delinquent or not delinquent  
+
+---
+
+## Key Insight from EDA
+
+- Delinquency is extremely rare  
+- Most properties are not delinquent  
+
+**This is a rare event prediction problem**
+
+---
+
+## TO DO
+
+Need to insert visualization/table of deliquency rate (table we made with `final_model_df %>% count(delinquent)`)
+
+---
+
+## Why This Is Hard
+
+- The model learns the dominant pattern  
+- Most properties are not delinquent  
+- So the model predicts almost everything as not delinquent  
+
+---
+
+## Why Accuracy Is Misleading
+
+- A model can look accurate by predicting no delinquency  
+- But it misses the cases the city actually cares about  
+
+**Accuracy does not tell us if the model is useful**
+
+---
+
+## What Happened With Our Model
+
+- The model predicted almost everything as not delinquent  
+- Very few properties were flagged as at risk  
+
+---
+
+## What This Means
+
+- The model is not broken  
+- It is responding to the structure of the data  
+- This is expected in rare event prediction  
+
+---
+
+## How We Adjusted
+
+- Lowered the classification threshold  
+- Added more weight to delinquent cases  
+- Focused on identifying risk instead of maximizing accuracy  
+
+---
+
+## TO DO
+
+Need to add predicted probability histogram (this was the predicted_prob2 in test_data_clean)
+
+---
+
+## Results
+
+- Accuracy changes when we adjust the model  
+- The model begins to flag more at-risk properties  
+
+**This creates a tradeoff**
+
+---
+
+## The Tradeoff
+
+- More false positives  
+- Fewer missed delinquent cases  
+
+---
+
+## Policy Interpretation
+
+- False positive means extra outreach  
+- False negative means missing a household that needs help  
+
+**Missing risk is more costly than over-flagging**
+
+---
+
+## TO DO
+
+Need to add our threshold tradeoff plot (this is just the threshold_results)
+
+---
+
+## Spatial Insight
+
+- Risk is not evenly distributed  
+- Some neighborhoods are harder to predict  
+
+---
+
+## TO DO
+
+Add  delinquency map 
+---
+
+## TO DO
+
+Add residual map as well (block_group residuals)
+ 
+---
+
+## What We Learned
+
+- Delinquency is difficult to predict because it is rare  
+- Standard models default to predicting no delinquency  
+- Accuracy alone is not meaningful in this setting  
+
+---
+
+## Limitations
+
+- Rare outcome makes prediction difficult  
+- Missing household-level financial data  
+- Model performance varies across neighborhoods  
+
+---
+
+## Recommendations
+
+- Use model for early outreach  
+- Prioritize support services  
+- Do not use for enforcement  
+
+---
+
+## Final Takeaway
+
+Prediction here is not about being perfect  
+
+It is about identifying risk early enough to act  
+
+---
+
+## Thank You
+
+Questions?

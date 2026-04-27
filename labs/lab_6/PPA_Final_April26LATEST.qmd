@@ -1,0 +1,2387 @@
+---
+title: "Final Technical Appendix"
+editor: visual
+---
+
+# Predicting Philadelphia Property Tax Delinquency
+
+# Part 1: Loading and Cleaning Data
+
+```{r setup-libraries}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(tigris)
+library(tidycensus)
+
+library(viridis) # color scales for visualization
+library(knitr)
+library(kableExtra)
+library(patchwork)
+
+library(modelsummary)
+library(scales)
+
+library(here)
+options(scipen = 999) # Get rid of scientific notation to make it look tidier
+```
+
+### Property Tax Data
+
+**Clean the tax dataset** 
+
+-   Standardize parcel IDs 
+
+<!-- -->
+
+-   Convert delinquency indicators to binary 
+
+<!-- -->
+
+-   Aggregate by property if multiple years exist 
+
+<!-- -->
+
+-   Create a “most recent status” variable for 2022 
+
+```{r load-data}
+
+prop_tax <- read.csv("data/geocoded_output.csv")
+
+```
+
+```{r clean-data1}
+
+# Columns with mostly NAs
+prop_tax %>% 
+  count(is.na(unit_type))
+
+prop_tax %>% 
+  count(is.na(unit_num))
+
+prop_tax %>% 
+  count(is.na(agreement_agency))
+
+prop_tax %>% 
+  count(is.na(years_in_bankruptcy))
+
+prop_tax %>% 
+  count(is.na(most_recent_bankrupt_year))
+
+prop_tax %>% 
+  count(is.na(oldest_bankrupt_year))
+
+prop_tax %>% 
+  count(is.na(principal_sum_bankrupt_years))
+
+# Remove majority NA columns
+prop_tax <- prop_tax %>% 
+  select(-c(unit_type, unit_num, agreement_agency, years_in_bankruptcy, most_recent_bankrupt_year, oldest_bankrupt_year, principal_sum_bankrupt_years))
+# Further removing of unnecessary variables
+prop_tax <- prop_tax %>% 
+  select(-c(owner, co_owner, zip_4, mailing_address, return_mail, coll_agency_num_years, coll_agency_most_recent_year, coll_agency_oldest_year, coll_agency_principal_owed, coll_agency_total_owed, total_amount_bankrupt_years))
+
+prop_tax <- prop_tax %>% 
+  select(-c(mailing_zip, the_geom, the_geom_webmercator, cartodb_id, objectid, most_recent_payment_date, total_assessment, building_code, detail_building_description, sequestration_enforcement, bankruptcy))
+
+write.csv(prop_tax, "data/prop_tax.csv")
+```
+
+```{r}
+# EDA Step
+
+# FOR OUR OWN RECORD
+# liens_sold variables --> turn into dummy variables, 1 and 0
+# narrow time window
+# filter building category/buidling description
+
+```
+
+### Housing Characteristics Data
+
+```{r}
+
+opa_prop <- read.csv("data/opa_properties_for_FINAL.csv")
+```
+
+## Load Spatial Data
+
+### Philly Limits and Neighborhood
+
+```{r Philadelphia}
+# Loading city boundary
+PHL_LIMITS <-  st_read("data/City_Limits.shp")
+
+# Loading neighborhood boundaries
+phil_hood <- st_read("data/philadelphia-neighborhoods.shp")
+
+#filtering - only need neighborhood names
+phil_hood <- phil_hood %>%
+  select(LISTNAME, geometry) %>%
+  rename(Name = LISTNAME) 
+
+phil_hood <- st_transform(phil_hood, crs=2272)
+```
+
+```{r property-spatial}
+
+prop_tax_sf <- st_as_sf(
+  prop_tax,
+  coords = c("longitude", "latitude"),
+  crs = 4326,     # assuming coordinates are lon/lat
+  remove = FALSE
+)
+
+prop_tax_sf <- st_transform(prop_tax_sf, st_crs(PHL_LIMITS))
+
+
+class(opa_prop$shape)
+
+bad <- which(!grepl("POINT\\(", opa_prop$shape))
+opa_prop$shape[bad][1:10]
+
+sum(opa_prop$shape == "")
+sum(is.na(opa_prop$shape))
+
+opa_prop_clean <- opa_prop %>%
+  filter(!is.na(shape), shape != "")
+opa_prop_clean <- opa_prop_clean %>%
+  mutate(shape_clean = gsub("^SRID=2272;\\s*", "", shape))
+
+opa_sf <- st_as_sf(opa_prop_clean, wkt = "shape_clean", crs = 2272)
+
+opa_sf <- st_transform(opa_sf, st_crs(PHL_LIMITS))
+
+```
+
+```{r map-properties}
+# ADD TITLES
+ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "gray60") +
+  geom_sf(
+    data = prop_tax_sf,
+    color = "lightpink",
+    size = 0.025,
+    alpha = 0.6
+  ) +
+  geom_sf(
+    data = opa_sf,
+    color = "black", 
+    size = 0.025,
+    alpha = 0.6
+  ) +
+  theme_void()
+```
+
+```{r cleaning-delinquent-data}
+# check if any duplicate delinquent property records
+prop_tax %>%
+  count(opa_number, sort = TRUE)
+# no duplicate entries means we can assume that for every year in between the oldest_year_owed and most_recent_year_owed, the same property is continuously delinquent
+
+prop_tax <- prop_tax %>%
+  # remove entries where opa_number = 0
+  filter(opa_number != 0) %>% 
+  # reduce time window to properties that entered delinquency between 2010 and 2020
+  filter(oldest_year_owed >= 2010, oldest_year_owed <= 2020) %>% 
+  filter(general_building_description == "house")
+
+# distribution of total amount due for tax delinquent properties
+prop_tax %>% 
+  ggplot() +
+  geom_histogram(aes(x = total_due), binwidth = 1000) +
+  coord_cartesian(xlim = c(0, 100000))
+
+# add delinquency indicator to dataframe - all properties assigned 1 because they are all delinquent in this dataset
+prop_tax$delinquent <- 1
+
+```
+
+```{r clean-opa}
+
+#filter data to only select Single-Family property types 
+  #defined where category_code_description is Single Family
+single_prop <- opa_prop_clean %>%
+  filter(category_code_description == "SINGLE FAMILY")
+
+#removing NAs and any properties where sales price was equal to or below 0
+single_prop_clean <- single_prop %>% 
+  filter(!is.na(total_livable_area), !is.na(sale_price), !is.na(year_built), !is.na(location)) %>% 
+  filter(sale_price>0)
+
+# check if any duplicate properties
+single_prop_clean %>%
+  count(parcel_number, sort = TRUE)
+
+
+#recording IQR of sale price variable for better sense of appropriate thresholds
+  #of sale prices that would allow us to discount extreme outlier values
+IQR_sale_price <- summary(single_prop_clean$sale_price)
+
+#further narrowing down properties to those with sales prices 
+  #between 20,000 and 1,000,000
+single_prop_clean <- single_prop_clean %>% 
+  filter((sale_price >= 20000 & sale_price <= 1000000))
+
+#histogram of sales price, without outlier values
+ggplot(single_prop_clean, aes(x=sale_price)) +
+  geom_histogram(fill = "lightsteelblue1", bins = 500) +
+  labs(title = "Histogram of Sales Prices", x = "Price", y = "Frequency")
+
+##log transformation of sale price variable data to enhance normality
+  #because histogram of un-logged values is right skewed
+#p_single_recent <- p_single_recent %>% 
+  #mutate(log_sale_price = log(sale_price))
+
+##histogram of log-transformed sale price
+#ggplot(p_single_recent, aes(x=log_sale_price)) +
+  #geom_histogram(fill = "lightsteelblue1", bins = 200) +
+  #labs(title = "Histogram of Log-Transformed Sales Prices", x = "Sale Price", y = "Frequency") +
+  #scale_x_continuous(
+    #breaks = c(10, 11, 12, 13, 14),
+    #labels = function(x) scales::dollar(exp(x))) #change x-axis values to dollars   
+
+#further filtering properties where total area and total liveable area are greater than 0
+single_prop_clean <- single_prop_clean %>% 
+  filter(total_livable_area > 0)
+
+#labeling empty rows of character variable with NA
+house <- single_prop_clean %>% 
+  mutate(across(where(is.character), ~ na_if(., "")))
+
+#continued filtering of properties where year built is greater than 0
+house <- house %>% 
+  filter(year_built > 0)
+
+
+```
+
+```{r merging-delinquent-to-allproperties}
+
+# STEP 1 — Expand each delinquent property into one row per year it was delinquent
+prop_tax_expanded <- prop_tax %>%
+  rowwise() %>%
+  mutate(year = list(oldest_year_owed:most_recent_year_owed)) %>%
+  unnest(year) %>%
+  mutate(delinquent = 1) %>%
+  select(opa_number, year, delinquent)
+```
+
+```{r}
+# STEP 2 — Create a full property-year panel for all single family homes (2010–2020)
+years <- 2010:2020
+
+panel <- expand_grid(
+  house,
+  year = years
+) %>%
+  rename(opa_number = parcel_number)
+
+# STEP 3 — Merge delinquency status onto the full panel by property and year
+panel <- panel %>%
+  left_join(prop_tax_expanded, by = c("opa_number", "year"))
+
+# Check that merge worked for a sample property
+panel %>% 
+  filter(opa_number == "102484400") %>% 
+  arrange(year) %>% 
+  select(opa_number, year, delinquent)
+
+# STEP 4 — Fill in 0 for any property-year with no delinquency record
+panel <- panel %>%
+  mutate(delinquent = ifelse(is.na(delinquent), 0, 1))
+
+# STEP 5 — Confirm the same property now shows correct 0s and 1s by year
+panel %>%
+  filter(opa_number == "281097100") %>%
+  arrange(year) %>%
+  select(opa_number, year, delinquent)
+```
+
+```{r}
+# We noticed that some of the delinquent properties did not exist inthe merged dataframe. To ensure this was not an error we did the following:
+
+# Check if the property exists in each dataframe
+"102484400" %in% house$parcel_number      # is it in the all-properties data?
+"102484400" %in% prop_tax$opa_number      # is it in the delinquency data?
+
+class(house$parcel_number)
+class(prop_tax$opa_number)
+
+# Turns out, the specific property that went missing was dropped because it did not exist in the 'house' dataframe because it's sale_price was not >20,000. It was $1.
+```
+
+```{r lag-variables}
+
+panel <- panel %>%
+  arrange(opa_number, year) %>%
+  group_by(opa_number) %>%
+  mutate(
+    # delinquency in the previous year (0 for first year)
+    lag_delinquent = lag(delinquent, default = 0),
+
+    # running count of all past delinquencies
+    times_delinquent_before = cumsum(lag_delinquent)
+  ) %>%
+  ungroup() 
+
+#panel <- panel %>% 
+  #select(-ever_delinquent_before)
+
+sum(panel$delinquent == 1)
+sum(panel$delinquent == 0)
+
+
+```
+
+### CENSUS CHARACTERISTICS AT BLOCK GROUP LEVEL
+
+```{r census}
+
+# retrieving census data
+#note: the table names and numbers and explanation was suggested by Claude AI, coding domne by team 
+pa_county_data <- get_acs(
+  geography = "block group",
+  state     = "PA",
+  county    = "Philadelphia",
+  variables = c(
+    MEDHHINC    = "B19013_001",  # Median household income
+    WHITE       = "B03002_003",  # Non-Hispanic White population
+    TOTAL_OCC   = "B25003_001",  # Total occupied housing units
+    OWNER_OCC   = "B25003_002",  # Owner occupied units
+    RENTER_OCC  = "B25003_003",  # Renter occupied units
+    TOTAL_HSG   = "B25001_001",  # Total housing units
+    VACANT      = "B25004_001",  # Vacant housing units
+    OWN_TOT     = "B25038_002",  # Total owner occupied (move-in universe)
+    OWN_IN17P   = "B25038_003",  # Owners moved in 2017 or later
+    OWN_IN1516  = "B25038_004",  # Owners moved in 2015-2016
+    OWN_IN1014  = "B25038_005",  # Owners moved in 2010-2014
+    OWN_IN0009  = "B25038_006",  # Owners moved in 2000-2009
+    OWN_IN9099  = "B25038_007",  # Owners moved in 1990-1999
+    OWN_INPRE89 = "B25038_008",  # Owners moved in 1989 or earlier
+    RNT_TOT     = "B25038_009",  # Total renter occupied (move-in universe)
+    RNT_IN17P   = "B25038_010",  # Renters moved in 2017 or later
+    RNT_IN1516  = "B25038_011",  # Renters moved in 2015-2016
+    RNT_IN1014  = "B25038_012",  # Renters moved in 2010-2014
+    RNT_IN0009  = "B25038_013",  # Renters moved in 2000-2009
+    RNT_IN9099  = "B25038_014",  # Renters moved in 1990-1999
+    RNT_INPRE89 = "B25038_015",  # Renters moved in 1989 or earlier
+    BUILT_TOT   = "B25034_001",  # Total housing units (year built universe)
+    BUILT_2014P = "B25034_002",  # Built 2014 or later
+    BUILT_1013  = "B25034_003",  # Built 2010-2013
+    BUILT_0009  = "B25034_004",  # Built 2000-2009
+    BUILT_9099  = "B25034_005",  # Built 1990-1999
+    BUILT_8089  = "B25034_006",  # Built 1980-1989
+    BUILT_7079  = "B25034_007",  # Built 1970-1979
+    BUILT_6069  = "B25034_008",  # Built 1960-1969
+    BUILT_5059  = "B25034_009",  # Built 1950-1959
+    BUILT_4049  = "B25034_010",  # Built 1940-1949
+    BUILT_PRE39 = "B25034_011",  # Built 1939 or earlier
+    TPOP        = "B01003_001",  # Total population
+    M_6566      = "B01001_020",  # Male 65-66
+    M_6769      = "B01001_021",  # Male 67-69
+    M_7074      = "B01001_022",  # Male 70-74
+    M_7579      = "B01001_023",  # Male 75-79
+    M_8084      = "B01001_024",  # Male 80-84
+    M_85P       = "B01001_025",  # Male 85+
+    F_6566      = "B01001_044",  # Female 65-66
+    F_6769      = "B01001_045",  # Female 67-69
+    F_7074      = "B01001_046",  # Female 70-74
+    F_7579      = "B01001_047",  # Female 75-79
+    F_8084      = "B01001_048",  # Female 80-84
+    F_85P       = "B01001_049"   # Female 85+
+  ),
+  year    = 2019,
+  survey  = "acs5",
+  output  = "wide"
+)
+
+# calculating margin of error (MOE / Estimate * 100 = coefficient of variation)
+pa_county_data <- pa_county_data %>%
+  mutate(
+    MEDHHINC_MOE   = (MEDHHINCM    / MEDHHINCE)   * 100,  # CV for median household income
+    WHITE_MOE      = (WHITEM       / WHITEE)       * 100,  # CV for white population
+    TOTAL_OCC_MOE  = (TOTAL_OCCM   / TOTAL_OCCE)  * 100,  # CV for total occupied units
+    OWNER_OCC_MOE  = (OWNER_OCCM   / OWNER_OCCE)  * 100,  # CV for owner occupied units
+    RENTER_OCC_MOE = (RENTER_OCCM  / RENTER_OCCE) * 100,  # CV for renter occupied units
+    TOTAL_HSG_MOE  = (TOTAL_HSGM   / TOTAL_HSGE)  * 100,  # CV for total housing units
+    VACANT_MOE     = (VACANTM      / VACANTE)      * 100,  # CV for vacant units
+    OWN_TOT_MOE    = (OWN_TOTM     / OWN_TOTE)    * 100,  # CV for owner move-in universe
+    RNT_TOT_MOE    = (RNT_TOTM     / RNT_TOTE)    * 100,  # CV for renter move-in universe
+    BUILT_TOT_MOE  = (BUILT_TOTM   / BUILT_TOTE)  * 100,  # CV for year built universe
+    TPOP_MOE       = (TPOPM        / TPOPE)        * 100   # CV for total population
+  )
+
+# categorizing reliability based on CV thresholds
+filter_pa_category <- pa_county_data %>%
+  mutate(
+    reliability = case_when(
+      # Unreliable: estimate is zero or missing (CV is NA or infinite)
+      is.na(MEDHHINC_MOE)   | is.infinite(MEDHHINC_MOE)   |
+      is.na(TOTAL_HSG_MOE)  | is.infinite(TOTAL_HSG_MOE)  |
+      is.na(VACANT_MOE)     | is.infinite(VACANT_MOE)     |
+      is.na(TPOP_MOE)       | is.infinite(TPOP_MOE)       |
+      is.na(OWNER_OCC_MOE)  | is.infinite(OWNER_OCC_MOE)  |
+      is.na(RENTER_OCC_MOE) | is.infinite(RENTER_OCC_MOE) ~ "Unreliable",
+
+      # Use with caution: CV exceeds 40% on any core variable
+      MEDHHINC_MOE   > 40 |
+      TOTAL_HSG_MOE  > 40 |
+      VACANT_MOE     > 40 |
+      TPOP_MOE       > 40 |
+      OWNER_OCC_MOE  > 40 |
+      RENTER_OCC_MOE > 40 ~ "Use with Caution",
+
+      TRUE ~ "Reliable"
+    )
+  ) %>%
+  drop_na()
+
+# creating final dataset with derived rates and proportions
+final_dataset <- filter_pa_category %>%
+  mutate(
+    OWNER_RATE      = (OWNER_OCCE  / TOTAL_OCCE)  * 100,  # % of occupied units that are owner occupied
+    RENTER_RATE     = (RENTER_OCCE / TOTAL_OCCE)  * 100,  # % of occupied units that are renter occupied
+    VACANCY_RATE    = (VACANTE     / TOTAL_HSGE)  * 100,  # % of all units that are vacant
+    WHITE_PROP      = (WHITEE      / TPOPE)        * 100,  # % of population that is Non-Hispanic White
+
+    # Avg years owners have lived in unit (weighted midpoint from move-in brackets)
+    AVG_OWN_STAY = (
+      OWN_IN17PE   * (2019 - 2018) +  # midpoint 2017-2019
+      OWN_IN1516E  * (2019 - 2015) +  # midpoint 2015-2016
+      OWN_IN1014E  * (2019 - 2012) +  # midpoint 2010-2014
+      OWN_IN0009E  * (2019 - 2004) +  # midpoint 2000-2009
+      OWN_IN9099E  * (2019 - 1994) +  # midpoint 1990-1999
+      OWN_INPRE89E * (2019 - 1984)    # assumed midpoint pre-1989
+    ) / OWN_TOTE,
+
+    # Avg years renters have lived in unit (weighted midpoint from move-in brackets)
+    AVG_RNT_STAY = (
+      RNT_IN17PE   * (2019 - 2018) +  # midpoint 2017-2019
+      RNT_IN1516E  * (2019 - 2015) +  # midpoint 2015-2016
+      RNT_IN1014E  * (2019 - 2012) +  # midpoint 2010-2014
+      RNT_IN0009E  * (2019 - 2004) +  # midpoint 2000-2009
+      RNT_IN9099E  * (2019 - 1994) +  # midpoint 1990-1999
+      RNT_INPRE89E * (2019 - 1984)    # assumed midpoint pre-1989
+    ) / RNT_TOTE,
+
+    # Avg age of housing stock in years (weighted midpoint from year built brackets)
+    AVG_HOUSING_AGE = (
+      BUILT_2014PE * (2019 - 2016) +  # midpoint 2014-2019
+      BUILT_1013E  * (2019 - 2011) +  # midpoint 2010-2013
+      BUILT_0009E  * (2019 - 2004) +  # midpoint 2000-2009
+      BUILT_9099E  * (2019 - 1994) +  # midpoint 1990-1999
+      BUILT_8089E  * (2019 - 1984) +  # midpoint 1980-1989
+      BUILT_7079E  * (2019 - 1974) +  # midpoint 1970-1979
+      BUILT_6069E  * (2019 - 1964) +  # midpoint 1960-1969
+      BUILT_5059E  * (2019 - 1954) +  # midpoint 1950-1959
+      BUILT_4049E  * (2019 - 1944) +  # midpoint 1940-1949
+      BUILT_PRE39E * (2019 - 1930)    # assumed midpoint pre-1939
+    ) / BUILT_TOTE,
+
+    # Sum all male and female 65+ age bands
+    POP_65P     = M_6566E + M_6769E + M_7074E + M_7579E + M_8084E + M_85PE +
+                  F_6566E + F_6769E + F_7074E + F_7579E + F_8084E + F_85PE,
+    OVER65_PROP = (POP_65P / TPOPE) * 100  # % of population aged 65 or older
+
+  ) %>%
+  select(
+    GEOID, NAME, reliability,
+    MEDHHINCE,       # Median household income
+    WHITE_PROP,      # % Non-Hispanic White
+    OWNER_RATE,      # % owner occupied
+    RENTER_RATE,     # % renter occupied
+    VACANCY_RATE,    # % vacant units
+    AVG_OWN_STAY,    # Avg years owners have stayed
+    AVG_RNT_STAY,    # Avg years renters have stayed
+    AVG_HOUSING_AGE, # Avg age of housing stock in years
+    OVER65_PROP      # % of population 65 or older
+  )
+
+head(final_dataset)
+```
+
+### Economic Variables from Census AT CENSUS TRACT LEVEL
+
+```{r}
+
+#get census tract level data that we apply to block group level
+
+
+ #── Census tract-level socioeconomic indicators ──────────────────────────────
+# Philadelphia County, ACS 5-year 2019
+# Variables: unemployment, educational attainment, poverty,
+#            housing cost burden, and SNAP receipt
+
+philly_tract_data <- get_acs(
+  geography = "tract",
+  state     = "PA",
+  county    = "Philadelphia",
+  variables = c(
+    # ── Labor force / unemployment (B23025) ───────────────────────────────────
+    LBR_FORCE    = "B23025_003",  # Civilian labor force
+    UNEMPLOYED   = "B23025_005",  # Unemployed
+
+    # ── Educational attainment 25+ (B15003) ───────────────────────────────────
+    EDUC_TOT     = "B15003_001",  # Total population 25+
+    BACH         = "B15003_022",  # Bachelor's degree
+    MASTERS      = "B15003_023",  # Master's degree
+    PROF         = "B15003_024",  # Professional school degree
+    DOCT         = "B15003_025",  # Doctorate degree
+
+    # ── Poverty (B17001) ──────────────────────────────────────────────────────
+    POV_TOT      = "B17001_001",  # Total population for poverty determination
+    POV_BELOW    = "B17001_002",  # Income below poverty level
+
+    # ── Housing cost burden — owners (B25091) ─────────────────────────────────
+    OWN_BURDEN_TOT = "B25091_001", # Total owner-occupied units w/ mortgage costs
+    OWN_30_34    = "B25091_008",  # 30.0–34.9% of income
+    OWN_35_39    = "B25091_009",  # 35.0–39.9% of income
+    OWN_40_49    = "B25091_010",  # 40.0–49.9% of income
+    OWN_50P      = "B25091_011",  # 50.0% or more of income
+
+    # ── Housing cost burden — renters (B25070) ────────────────────────────────
+    RNT_BURDEN_TOT = "B25070_001", # Total renter-occupied units w/ gross rent
+    RNT_30_34    = "B25070_007",  # 30.0–34.9% of income
+    RNT_35_39    = "B25070_008",  # 35.0–39.9% of income
+    RNT_40_49    = "B25070_009",  # 40.0–49.9% of income
+    RNT_50P      = "B25070_010",  # 50.0% or more of income
+
+    # ── SNAP / food stamp receipt (B22003) ────────────────────────────────────
+    SNAP_TOT     = "B22003_001",  # Total households
+    SNAP_RCVD    = "B22003_002"   # Households that received SNAP
+  ),
+  year   = 2019,
+  survey = "acs5",
+  output = "wide"
+)
+
+
+# ── Coefficient of variation (MOE / Estimate × 100) ──────────────────────────
+philly_tract_data <- philly_tract_data %>%
+  mutate(
+    UNEMP_CV       = (UNEMPLOYEDM   / UNEMPLOYEDE)     * 100,
+    EDUC_CV        = (EDUC_TOTM     / EDUC_TOTE)       * 100,
+    POV_CV         = (POV_TOTM      / POV_TOTE)        * 100,
+    OWN_BURDEN_CV  = (OWN_BURDEN_TOTM / OWN_BURDEN_TOTE) * 100,
+    RNT_BURDEN_CV  = (RNT_BURDEN_TOTM / RNT_BURDEN_TOTE) * 100,
+    SNAP_CV        = (SNAP_TOTM     / SNAP_TOTE)       * 100
+  )
+
+
+# ── Reliability classification (CV threshold: 40%) ───────────────────────────
+philly_tract_filtered <- philly_tract_data %>%
+  mutate(
+    reliability = case_when(
+      # Unreliable: estimate is zero/missing → CV is NA or infinite
+      is.na(UNEMP_CV)      | is.infinite(UNEMP_CV)      |
+      is.na(EDUC_CV)       | is.infinite(EDUC_CV)       |
+      is.na(POV_CV)        | is.infinite(POV_CV)        |
+      is.na(OWN_BURDEN_CV) | is.infinite(OWN_BURDEN_CV) |
+      is.na(RNT_BURDEN_CV) | is.infinite(RNT_BURDEN_CV) |
+      is.na(SNAP_CV)       | is.infinite(SNAP_CV)
+      ~ "Unreliable",
+
+      # Use with caution: any core denominator CV exceeds 40%
+      UNEMP_CV      > 40 |
+      EDUC_CV       > 40 |
+      POV_CV        > 40 |
+      OWN_BURDEN_CV > 40 |
+      RNT_BURDEN_CV > 40 |
+      SNAP_CV       > 40
+      ~ "Use with Caution",
+
+      TRUE ~ "Reliable"
+    )
+  ) %>%
+  drop_na()
+
+
+# ── Derived rates ─────────────────────────────────────────────────────────────
+final_tract_dataset <- philly_tract_filtered %>%
+  mutate(
+    # Unemployment rate: unemployed / civilian labor force
+    UNEMP_RATE     = (UNEMPLOYEDE  / LBR_FORCEE)       * 100,
+
+    # Bachelor's degree or higher: sum of bach + grad degrees / pop 25+
+    BACH_PLUS      = BACHE + MASTERSE + PROFE + DOCTE,
+    BACH_RATE      = (BACH_PLUS    / EDUC_TOTE)        * 100,
+
+    # Poverty rate: population below poverty / total poverty universe
+    POV_RATE       = (POV_BELOWE   / POV_TOTE)         * 100,
+
+    # Cost-burdened owners (≥30% income on housing costs)
+    OWN_BURDENED   = OWN_30_34E + OWN_35_39E + OWN_40_49E + OWN_50PE,
+    OWN_BURDEN_RATE= (OWN_BURDENED / OWN_BURDEN_TOTE)  * 100,
+
+    # Cost-burdened renters (≥30% income on gross rent)
+    RNT_BURDENED   = RNT_30_34E + RNT_35_39E + RNT_40_49E + RNT_50PE,
+    RNT_BURDEN_RATE= (RNT_BURDENED / RNT_BURDEN_TOTE)  * 100,
+
+    # Overall cost-burden rate (owners + renters combined)
+    TOTAL_BURDENED = OWN_BURDENED + RNT_BURDENED,
+    TOTAL_BURDEN_DENOM = OWN_BURDEN_TOTE + RNT_BURDEN_TOTE,
+    BURDEN_RATE    = (TOTAL_BURDENED / TOTAL_BURDEN_DENOM) * 100,
+
+    # SNAP receipt rate: households receiving SNAP / total households
+    SNAP_RATE      = (SNAP_RCVDE   / SNAP_TOTE)        * 100
+  ) %>%
+  select(
+    GEOID, NAME, reliability,
+    UNEMP_RATE,       # % unemployed (of civilian labor force)
+    BACH_RATE,        # % with bachelor's degree or higher (pop 25+)
+    POV_RATE,         # % below poverty line
+    OWN_BURDEN_RATE,  # % cost-burdened owner-occupied units
+    RNT_BURDEN_RATE,  # % cost-burdened renter-occupied units
+    BURDEN_RATE,      # % cost-burdened all occupied units (combined)
+    SNAP_RATE         # % households receiving SNAP
+  )
+
+head(final_tract_dataset)
+
+```
+
+### Business Improvement Districts
+
+```{r BID}
+#Business Improvement Districts
+
+bid <- st_read("https://services.arcgis.com/fLeGjb7u4uXqeF9q/arcgis/rest/services/business_improvement_districts/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson")%>%
+  st_transform(crs=2272)
+
+bid <- bid %>%
+  select(organization, geometry)
+
+#creating centroid for spatial engineering later
+
+#bid_centroid <- st_centroid(bid)
+
+
+#City of Philadelphia. (n.d.). Business improvement districts [Data set]. OpenDataPhilly.
+```
+
+### Affordable Housing Projects
+
+```{r Aff Housing}
+
+#Point Data
+
+#Affordable Housing Projects
+aff_house <- st_read("https://hub.arcgis.com/api/v3/datasets/ca8944190b604b2aae7eff17c8dd9ef5_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1")%>%
+  st_transform(crs= 2272)
+
+aff_house <- aff_house %>%
+  filter(status !="Under Construction")%>%
+  select(project_type, geometry, developer_name, development_type)
+
+aff_house <- aff_house%>%
+  rename(Aff_project = project_type, aff_developer = developer_name, aff_development= development_type)
+
+#buffer is in ft atm CRS= 2272. .5 mile= 2640ft
+
+aff_buf <- st_buffer(aff_house, dis=2640)
+
+
+#City of Philadelphia. (n.d.). Completed affordable housing units [Data set]. OpenDataPhilly. https://opendataphilly.org/datasets/affordable-housing-production/
+```
+
+### Empowerment Zone
+
+```{r Emp Zone}
+
+#Polygon data. 
+
+#Decided not to use centroid because we don't know how large these spaces are and we want to see if the closer you are the more or less likely you are tax delinquent. 
+
+emp_zn <- st_read("https://hub.arcgis.com/api/v3/datasets/78fa563815654742909159b53fa4b065_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1")%>%
+  st_transform(crs= 2272)
+
+emp_zn <- emp_zn%>%
+  select(ZONE_NAME, geometry)%>%
+  rename(Emp_Zone = ZONE_NAME)
+
+
+#City of Philadelphia. (n.d.). Empowerment zones [Data set]. OpenDataPhilly. https://opendataphilly.org/datasets/empowerment-zones/
+
+```
+
+### Housing Counselling Agencies
+
+```{r Housing Councelling Agencies HCA}
+
+#POINT DATA
+
+HCA <- st_read("https://hub.arcgis.com/api/v3/datasets/3265538198254e9fb6a8974745adab51_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1")%>%
+               st_transform(crs=2272)
+
+HCA<-HCA%>%
+  select(AGENCY, geometry)%>%
+  rename(HCA_AGENCY = AGENCY)
+
+
+
+#City of Philadelphia. (n.d.). Housing counseling agencies [Data set]. OpenDataPhilly. https://opendataphilly.org/datasets/housing-counseling-agencies/
+```
+
+### Load and Clean Crime Data
+
+```{r}
+library(janitor)
+options(tigris_use_cache = TRUE)
+
+# ---- 2. READ THE FILES ----
+crime19 <- read_csv("data/incidents_part1_part2_2019.csv", show_col_types = FALSE) %>%
+  clean_names()
+
+#crime24 <- read_csv("~/Downloads/incidents_part1_part2.csv", show_col_types = FALSE) %>%
+  #clean_names()
+
+# ---- 3. KEEP ONLY THE COLUMNS WE NEED ----
+crime19 <- crime19 %>%
+  select(dispatch_date, text_general_code, lat, lng)
+
+#crime24 <- crime24 %>%
+  #select(dispatch_date, text_general_code, lat, lng)
+
+# ---- 4. PARSE DATES + FILTER TO THE CORRECT YEAR ----
+crime19 <- crime19 %>%
+  mutate(dispatch_date = as.Date(dispatch_date)) %>%
+  filter(format(dispatch_date, "%Y") == "2019")
+
+#crime24 <- crime24 %>%
+  #mutate(dispatch_date = as.Date(dispatch_date)) %>%
+  #filter(format(dispatch_date, "%Y") == "2024")
+
+# ---- 5. FILTER TO ONE CRIME TYPE ----
+# Recommended: combine residential + non-residential burglary
+burglary_codes <- c("Burglary Residential", "Burglary Non-Residential")
+
+crime19_burg <- crime19 %>%
+  filter(text_general_code %in% burglary_codes) %>%
+  filter(!is.na(lat), !is.na(lng))
+
+#crime24_burg <- crime24 %>%
+  #filter(text_general_code %in% burglary_codes) %>%
+  #filter(!is.na(lat), !is.na(lng))
+
+# ---- 6. CONVERT INCIDENTS TO SF POINTS ----
+crime19_sf <- crime19_burg %>%
+  st_as_sf(coords = c("lng", "lat"), crs = 4326) %>%
+  st_transform(2272)
+#crime24_sf <- st_as_sf(crime24_burg, coords = c("lng", "lat"), crs = 4326, remove = FALSE)`
+```
+
+### Understanding Crime Distribution - Pre EDA
+
+```{r}
+#code for adding dist to burglary hotspots spatial feature to final model df
+
+# transform to 2272
+PHL_LIMITS <- st_transform(PHL_LIMITS, 2272)
+crime19_sf <- st_transform(crime19_sf, 2272)
+
+p2 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "darkblue", color = "white") +
+  geom_sf(data = crime19_sf, color = "lightyellow", size = 0.5, alpha = 1) +
+  labs(
+    title = "Crime Incidents",
+    subtitle = paste0("Philadelphia, n = ", nrow(crime19_sf))
+  ) +
+  theme_void()
+
+p1 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "black") +
+  geom_density_2d_filled(
+    data = data.frame(st_coordinates(crime19_sf)),
+    aes(X, Y),
+    alpha = 0.7,
+    bins = 8
+  ) +
+  scale_fill_viridis_d(
+    option = "viridis",
+    direction = 1,
+    guide = "none"
+  ) +
+  labs(
+    title = "Density Surface",
+    subtitle = "Kernel Density Estimation = Crime"
+  ) +
+  theme_void()
+
+p2 + p1 +
+  plot_annotation(
+    title = "Spatial Distribution of Crimes (burglaries)"
+  )
+```
+
+### Free Meal Sites Cleaning
+
+```{r freemeal-cleaning}
+#| message: false
+#| warning: false
+
+#selecting freemeal sites
+freemeal <- st_read("https://hub.arcgis.com/api/v3/datasets/5825a32bb8844bb097f7a16d4fbf4f23_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1") %>%
+  st_transform(2272)
+
+#cleaning and slecting useful columns and removing duplicates
+freemeal_clean <- freemeal %>%
+  select(
+    FM_SITE = site_name,
+    FM_ADDRESS = address,
+  ) %>%
+  distinct(FM_SITE, .keep_all = TRUE)
+```
+
+```{r freemeal-engineering}
+#| message: false
+#| warning: false
+
+#buffers of 5 mile around free meal sites
+freemeal_engineered <- freemeal_clean %>%
+  mutate(fm_buffer_1mile = st_buffer(geometry, 26400)
+  )
+```
+
+```{r summary2}
+#| message: false
+#| warning: false
+
+#summary table of cleaning process of free meal sites
+data.frame(
+  Phase = c("Unclean", "Cleaned", "With Buffers"),
+  Columns = c(ncol(freemeal), ncol(freemeal_clean), ncol(freemeal_engineered)),
+  Rows = c(nrow(freemeal), nrow(freemeal_clean), nrow(freemeal_engineered))
+) %>%
+  kable(caption = "Summary of Free Meal Sites Data Cleaning") %>%
+  kable_styling(
+    full_width = FALSE,
+    position = "left",
+    bootstrap_options = c("striped", "hover", "condensed", "sm")
+  )
+```
+
+### Parks Cleaning
+
+```{r parkscleaning}
+#| message: false
+#| warning: false
+
+#loading parks
+parks1 <- st_read("https://hub.arcgis.com/api/v3/datasets/d52445160ab14380a673e5849203eb64_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1") %>%
+  st_transform(crs=2272) 
+
+#filtering all parks classified as "TRAFFIC_ISLAND_MEDIAN" and checking total number of rows
+parks1 %>% 
+  filter(property_classification == "TRAFFIC_ISLAND_MEDIAN") %>%
+  nrow()
+
+# loading and cleaning park data, removing inaccessible classifications
+parks <- parks1 %>% 
+  filter(!(property_classification == "TRAFFIC_ISLAND_MEDIAN" & ppr_use == "OTHER")) %>%
+  filter(!(property_classification == "PATHWAY")) %>% 
+  filter(!(property_classification == "OPERATIONAL_INTERNAL")) %>%
+  rename(park_area = Shape__Area,
+         park_length = Shape__Length) %>%
+  select(label, nested, address_911, acreage, property_classification, ppr_use, park_area, park_length, geometry) %>% 
+  st_transform(2272)
+
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+#table of parks dataframe rows and columns throughout cleaning phases
+data.frame(
+  Phase= c("Unclean", "Final Data"), 
+  Column= c(ncol(parks1), ncol(parks)), 
+  Rows= c(nrow(parks1), nrow(parks)
+))%>%
+  kable(caption= "Summary of Cleaned Park Data")%>% 
+   kable_styling(
+    full_width = FALSE, 
+    position = "left",
+    bootstrap_options = c("striped", "hover", "condensed", "sm")
+  )
+```
+
+# Part 2: Spatial Engineering
+
+### Joining Census Data to Property Panel
+
+```{r censusdatajoining}
+
+#calling block group shape
+block_group_shape <- st_read("https://hub.arcgis.com/api/v3/datasets/2f982bada233478ea0100528227febce_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1")%>%
+  st_transform(crs = 2272)
+
+census_data <- final_dataset
+
+block_group_shape <- block_group_shape %>%
+  rename(GEOID = GEOID10)
+
+block_group_shape <- block_group_shape %>%
+  mutate(GEOID = as.character(GEOID)) 
+census_data <- census_data %>% 
+  mutate(GEOID = as.character(GEOID))
+
+
+census_with_geography <- block_group_shape %>% 
+  left_join(census_data, by= "GEOID")
+
+census_with_geography <- st_transform (census_with_geography, 2272)
+
+panel_sf <- st_as_sf(panel, 
+                     wkt = "shape_clean", crs = 2272)
+  
+
+panel_census_geo <- st_join(panel_sf, census_with_geography, join = st_within)
+
+```
+
+```{r censusdatajopining}
+
+#used claude to attach census tract level data to block group level in the dataset. we wanted to ensure that economic data (absent from block group level) was still included in our prediction for accuracy. 
+
+census_tract_level <- st_read("https://hub.arcgis.com/api/v3/datasets/8bc0786524a4486bb3cf0f9862ad0fbf_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1") %>%
+  st_transform(crs = 2272) %>%
+  rename(GEOID = GEOID10) %>%
+  mutate(GEOID = as.character(GEOID))
+
+econ_data <- final_tract_dataset %>%
+  mutate(GEOID = as.character(GEOID))
+
+econ_with_geography <- census_tract_level %>%
+  left_join(econ_data, by = "GEOID")
+
+block_group_with_econ <- block_group_shape %>%
+  st_centroid() %>%                              # use centroids to avoid boundary issues
+  st_join(econ_with_geography %>% select(-GEOID), join = st_within) %>%  # spatial join to tracts
+  st_drop_geometry() %>%                         # drop centroid geometry
+  left_join(block_group_shape, by = "GEOID") %>% # re-attach original block group polygons
+  st_as_sf()
+
+# join econ data onto panel_census_geo 
+panel_census_geo <- panel_census_geo %>%
+  left_join(
+    block_group_with_econ %>% st_drop_geometry() %>% 
+      select(GEOID, UNEMP_RATE, BACH_RATE, POV_RATE, OWN_BURDEN_RATE, RNT_BURDEN_RATE, BURDEN_RATE, SNAP_RATE),
+    by = "GEOID"
+  )
+```
+
+### Are any of the houses within Business Improvement Districts?
+
+```{r bidjoining }
+
+panel_census_geo <- st_transform(panel_census_geo, 2272)
+bid <- st_transform(bid, 2272)
+
+panel_census_geo$in_bid <- as.integer(lengths(st_within(panel_census_geo, bid)) > 0)
+
+```
+
+### Properties within 1mile of Affordable Housing Sites
+
+```{r}
+
+panel_census_geo$in_aff_buf <- as.integer(lengths(st_within(panel_census_geo, aff_buf)) > 0)
+```
+
+### Homes within Empowerment
+
+```{r}
+panel_census_geo$in_emp <- as.integer(lengths(st_within(panel_census_geo, emp_zn)) > 0)
+```
+
+### Housing Counselling Agency
+
+```{r}
+
+#distance in ft
+
+panel_census_geo$dist_HCA <- as.numeric(st_distance(panel_census_geo, st_union(HCA)))
+```
+
+### Free Meal Sites -distance
+
+```{r}
+
+#distance to mile
+
+panel_census_geo$dist_fm_buf <- as.numeric(st_distance(panel_census_geo, st_union(freemeal_clean)))
+```
+
+### Distance to Parks
+
+```{r}
+
+
+#distance in ft
+
+panel_census_geo$dist_parks <- as.numeric(st_distance(panel_census_geo, st_union(parks)))
+```
+
+### Interaction Term - Governor
+
+```{r}
+#creating a variable that is republican or not, then we can multiply this later to see effects
+
+panel_census_geo <- panel_census_geo %>%
+  mutate(republican_governor = if_else(year %in% 2011:2014, 1, 0))
+```
+
+### Neighborhood Fixed Effects
+
+```{r}
+panel_census_geo <- st_transform(panel_census_geo, 2272)
+phil_hood <- st_transform(phil_hood, 2272)
+
+panel_census_geo <- st_join(panel_census_geo, phil_hood, join = st_within)
+```
+
+### Distance to Burglary Hotspots
+
+```{r}
+#creating fishnet 
+
+fishnet <- st_make_grid(
+  PHL_LIMITS,
+  cellsize = 500,
+  square = TRUE
+) %>%
+  st_sf() %>%
+  mutate(uniqueID = row_number()) %>%
+  st_transform(2272)
+
+#fixing to only over Philly
+fishnet <- fishnet[PHL_LIMITS,]
+```
+
+```{r}
+
+# Step 1: Make sure crime data is spatial and in WGS84 first
+crime19_sf <- crime19 %>%
+  filter(!is.na(lat) & !is.na(lng)) %>%
+  st_as_sf(coords = c("lng", "lat"), crs = 4326) %>%
+  st_transform(2272)  # Project to PA State Plane (feet)
+
+# Step 2: Make sure PHL_LIMITS is also in 2272
+PHL_LIMITS <- st_transform(PHL_LIMITS, 2272)
+
+# Step 3: Build fishnet (already in 2272 since PHL_LIMITS is)
+fishnet <- st_make_grid(
+  PHL_LIMITS,
+  cellsize = 1500,
+  square = TRUE
+) %>%
+  st_sf() %>%
+  mutate(uniqueID = row_number())
+
+# Clip to Philly boundary
+fishnet <- fishnet[PHL_LIMITS, ]
+
+# Step 4: Spatial join — count crimes per cell
+crime_ppp <- crime19_sf %>%
+  st_join(fishnet, join = st_within) %>%
+  st_drop_geometry() %>%
+  group_by(uniqueID) %>%
+  summarize(total_crime = n())
+
+print(head(crime_ppp))
+
+# Step 5: Join counts back to fishnet
+fishnet <- fishnet %>%
+  left_join(crime_ppp, by = "uniqueID") %>%
+  mutate(total_crime = ifelse(is.na(total_crime), 0, total_crime))  # fixed!
+
+# Step 6: Plot
+ggplot() +
+  geom_sf(data = fishnet, aes(fill = total_crime), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    name = "Crime Count",
+    na.value = "grey60"
+  ) +
+  labs(
+    title = "Total Crime by Grid",
+    subtitle = "Philadelphia 2019, crime data - 500 x 500 ft",
+    caption = "Source: Open Data Philly"
+  ) +
+  theme_void()
+```
+
+## Creating Local Moran's on Crime Fishnet
+
+```{r}
+library(spdep)
+
+local_fishnet_model <- fishnet %>%
+  filter(!is.na(total_crime)) 
+
+# Spatial weights — use st_as_sf-compatible conversion
+fishnet_sp <- as(local_fishnet_model, "Spatial") 
+nbhr <- poly2nb(fishnet_sp, queen = TRUE)
+weights <- nb2listw(nbhr, style = "W", zero.policy = TRUE)
+
+# Run local Moran's I
+local_moran_crime <- localmoran(
+  local_fishnet_model$total_crime,
+  weights,
+  zero.policy = TRUE
+)
+
+# Attach results
+mean_val <- mean(local_fishnet_model$total_crime, na.rm = TRUE) 
+
+local_fishnet_model <- local_fishnet_model %>%
+  mutate(
+    local_i  = local_moran_crime[, 1],
+    p_value  = local_moran_crime[, 5],
+    is_significant = p_value < 0.05,
+    moran_class = case_when(
+      !is_significant                                          ~ "Not Significant",  # fixed typo "Signficant"
+      local_i > 0 & total_crime >  mean_val                   ~ "High-High",        # fixed: .data[[variable]] — variable was never defined
+      local_i > 0 & total_crime <= mean_val                   ~ "Low-Low",
+      local_i < 0 & total_crime >  mean_val                   ~ "High-Low",
+      local_i < 0 & total_crime <= mean_val                   ~ "Low-High",
+      TRUE                                                     ~ "Not Significant"
+    )
+  )
+
+# Update the main fishnet with results
+fishnet <- fishnet %>%
+  left_join(
+    st_drop_geometry(local_fishnet_model) %>%
+      select(uniqueID, local_i, p_value, is_significant, moran_class),
+    by = "uniqueID"
+  )  # fixed: calculate_local_morans() doesn't exist — manually join results back instead
+```
+
+## Plot Local Moran's I and Fishnet
+
+```{r}
+
+ggplot() +
+  geom_sf(data = local_fishnet_model, aes(fill = moran_class), color = NA) +  # fixed: file -> fill
+  scale_fill_manual(
+    values = c(
+      "High-High"     = "red",
+      "Low-Low"       = "blue",
+      "High-Low"      = "lightpink",
+      "Low-High"      = "lightblue",
+      "Not Significant" = "grey"
+    ),
+    name = "Cluster Type"
+  ) +
+  labs(
+    title    = "Local Moran's I: Crime Hotspots",
+    subtitle = "Philadelphia 1500 ft Grid Cells",
+    caption  = "High-High = High crime surrounded by high crime cells"  # fixed: "surroundded" typo
+  ) +
+  theme_void()
+```
+
+## Calculating distance from each crime to nearest hotspot cell
+
+```{r}
+
+hotspot_cells <- local_fishnet_model %>%
+  filter(moran_class == "High-High") %>%  # fixed: match your moran_class labels
+  st_centroid()
+
+panel_census_geo$disthot_crime <- as.numeric(
+  st_distance(panel_census_geo, hotspot_cells) %>%  # fixed: removed st_union()
+    apply(1, min)  # take the distance to the NEAREST hotspot cell
+)
+
+```
+
+```{r}
+
+
+final_data_panel <- panel_census_geo %>%
+  select(
+    opa_number, GEOID, category_code_description, location,  
+    census_tract, NAMELSAD10, market_value, sale_price, year, year_built, 
+    zoning, shape_clean, delinquent, 
+    lag_delinquent, times_delinquent_before, OWNER_RATE, OVER65_PROP,
+    MEDHHINCE, UNEMP_RATE, BACH_RATE, POV_RATE, OWN_BURDEN_RATE, in_bid,in_aff_buf, in_emp, dist_HCA,disthot_crime, Name, total_livable_area, SNAP_RATE, dist_parks, dist_fm_buf, RNT_BURDEN_RATE
+  )
+
+# make sure look only at properties built before 2020 so that all other feature data approximately matches and appropriately describes each property (even though we are treating some time-variant variables as time-invariant, i.e. total livable area, is from 2024, but the same number is assigned to the property between 2010-2020
+final_data_panel <- final_data_panel %>%
+  filter(year_built <= 2020)
+
+
+```
+
+# Part 3: Exploratory Data Analysis
+
+```{r}
+ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "gray95", color = "gray60") +
+  # Layer 1: all properties delinquent in 2020 (including chronic)
+  geom_sf(data = panel_census_geo %>% filter(year == 2020, delinquent == 1),
+          aes(color = "All Delinquent"), size = 0.3, alpha = 0.4) +
+  # Layer 2: newly delinquent only (current in 2019, delinquent in 2020)
+  geom_sf(data = panel_census_geo %>% filter(year == 2020,
+                                             delinquent == 1,
+                                             lag_delinquent == 0),
+          aes(color = "Newly Delinquent\n in 2020"), size = 0.4, alpha = 0.6) +
+  scale_color_manual(values = c("All Delinquent" = "blue",
+                                "Newly Delinquent\n in 2020" = "orange")) +
+  labs(
+    title = "Property Tax Delinquency in Philadelphia, 2020",
+      caption = "Source: OPA/Property Tax Data"
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  theme_void()
+```
+
+### Delinquency rate over time
+
+```{r}
+# renaming final_data_panel
+model_df <- final_data_panel
+
+model_df %>% group_by(year) %>% 
+  summarise(new_delinquency_rate = mean(delinquent)) %>% 
+  ggplot(aes(x = year, y = new_delinquency_rate)) +
+  geom_line(size = 1.2, color = "#1B2A4A") +
+  geom_vline(xintercept = 2020, linetype = "dashed", color = "#D4550A") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Annual New Delinquency Rate Among Previously-Current Properties",
+       subtitle = "Dashed line = 2020 (COVID year)",
+       x = "Year", y = "New Delinquency Rate")
+```
+
+### Dot map of all properties delinquent and non delinquent by year
+
+```{r}
+#dot map of all properties 
+
+delinqmap2010 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "gray") +
+  geom_sf(
+    data = final_data_panel %>% filter(delinquent == 0) %>% filter(year == 2010),
+    color = "lightblue", size = 0.025, alpha = 0.7) +
+  geom_sf(data = final_data_panel %>% filter(delinquent == 1),
+    color = "pink", size = 0.05, alpha = 0.7) +
+  labs(
+    title = "Single Family Properties in Philadelphia (2010)",
+    subtitle = "pink = delinquent | Yellow = not delinquent",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+delinqmap2012 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "gray") +
+  geom_sf(
+    data = final_data_panel %>% filter(delinquent == 0) %>% filter(year == 2012),
+    color = "lightblue", size = 0.025, alpha = 0.7) +
+  geom_sf(data = final_data_panel %>% filter(delinquent == 1),
+    color = "pink", size = 0.05, alpha = 0.7) +
+  labs(
+    title = "Single Family Properties in Philadelphia (2012)",
+    subtitle = "pink = delinquent | Yellow = not delinquent",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+delinqmap2014 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "gray") +
+  geom_sf(
+    data = final_data_panel %>% filter(delinquent == 0) %>% filter(year == 2014),
+    color = "lightblue", size = 0.025, alpha = 0.7) +
+  geom_sf(data = final_data_panel %>% filter(delinquent == 1),
+    color = "pink", size = 0.05, alpha = 0.7) +
+  labs(
+    title = "Single Family Properties in Philadelphia(2014)",
+    subtitle = "pink = delinquent | Yellow = not delinquent",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+delinqmap2016 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "gray") +
+  geom_sf(
+    data = final_data_panel %>% filter(delinquent == 0) %>% filter(year == 2016),
+    color = "lightblue", size = 0.025, alpha = 0.7) +
+  geom_sf(data = final_data_panel %>% filter(delinquent == 1),
+    color = "pink", size = 0.05, alpha = 0.7) +
+  labs(
+    title = "Single Family Properties in Philadelphia (2016)",
+    subtitle = "pink = delinquent | Yellow = not delinquent",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+
+delinqmap2018 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "white", color = "gray") +
+  geom_sf(
+    data = final_data_panel %>% filter(delinquent == 0) %>% filter(year == 2018),
+    color = "lightblue", size = 0.025, alpha = 0.7) +
+  geom_sf(data = final_data_panel %>% filter(delinquent == 1),
+    color = "pink", size = 0.05, alpha = 0.7) +
+  labs(
+    title = "Single Family Properties in Philadelphia (2018)",
+    subtitle = "pink = delinquent | Yellow = not delinquent",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+
+#claude assisted with combining this into one big map
+combined <- wrap_plots(delinqmap2010, delinqmap2012, delinqmap2014, delinqmap2016, delinqmap2018, ncol = 2)
+
+ggsave("combined_delinq.png", combined, width = 22, height = 28, dpi = 200)
+
+knitr::include_graphics("combined_delinq.png")
+
+
+```
+
+### Histogram of delinquent properties by year.
+
+```{r}
+ggplot(data = final_data_panel %>% filter(delinquent == 1),
+       aes(x = factor(year))) +
+  geom_bar(fill = "darkblue", color = "white") +
+  labs(
+    title = "Delinquent Property Count by Year (2010-2020)",
+    subtitle = "Single Family Properties in Philadelphia",
+    x = "Year",
+    y = "Count of Delinquent Properties",
+    caption = "Source: OPA/Property Tax Data"
+  ) +
+  theme_minimal()
+
+
+
+
+```
+
+### Histogram of Non-delinquent properties by year.
+
+```{r}
+ggplot(data = final_data_panel %>% filter(delinquent == 0),
+       aes(x = factor(year))) +
+  geom_bar(fill = "darkblue", color = "white") +
+  labs(
+    title = "Closer look at change - Non Delinquent Property Count by Year (2010-2020)",
+    subtitle = "Single Family Properties in Philadelphia",
+    x = "Year",
+    y = "Count of Non Delinquent Properties",
+    caption = "Source: OPA/Property Tax Data"
+  ) +
+  theme_minimal()
+
+```
+
+### Histogram of Non-delinquent properties by year- Changed Scale
+
+```{r}
+ggplot(data = final_data_panel %>% filter(delinquent == 0),
+       aes(x = factor(year))) +
+  geom_bar(fill = "darkblue", color = "white") +
+  coord_cartesian(ylim = c(284000, 292500)) +
+  labs(
+    title = "Non Delinquent Property Count by Year (2010-2020)",
+    subtitle = "Single Family Properties in Philadelphia",
+    x = "Year",
+    y = "Count of Non Delinquent Properties",
+    caption = "Source: OPA/Property Tax Data"
+  ) +
+  theme_minimal()
+```
+
+### Average count of delinquent properties by block group and year
+
+```{r}
+#avg delinquency by block group 
+
+block_group_delinquency <- panel_census_geo %>%
+  st_drop_geometry() %>%
+  group_by(GEOID, year) %>%
+  summarise(
+    n_delinquent     = sum(delinquent == 1, na.rm = TRUE),
+    n_non_delinquent = sum(delinquent == 0, na.rm = TRUE),
+    n_total          = n(),
+    delinquency_rate = n_delinquent / (n_delinquent + n_non_delinquent),
+    .groups = "drop"
+  )
+
+# join delinquency rate to block group POLYGONS
+block_group_delinquency_geo <- block_group_shape %>%
+  mutate(GEOID = as.character(GEOID)) %>%
+  left_join(
+    block_group_delinquency %>% filter(year == 2010),
+    by = "GEOID"
+  )
+
+delrate2010 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "grey90", color = "white") +
+  geom_sf(data = block_group_delinquency_geo,
+          aes(fill = delinquency_rate),
+          color = NA) +
+  scale_fill_viridis_c(
+    name = "Delinquency Rate",
+    option = "inferno",
+    na.value = "grey"
+  ) +
+  labs(
+    title = "Property Tax Delinquency Rate by Block Group (2010)",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+block_group_delinquency_geo1 <- block_group_shape %>%
+  mutate(GEOID = as.character(GEOID)) %>%
+  left_join(
+    block_group_delinquency %>% filter(year == 2019),
+    by = "GEOID"
+  )
+
+delrate2019 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "grey90", color = "white") +
+  geom_sf(data = block_group_delinquency_geo1,
+          aes(fill = delinquency_rate),
+          color = NA) +
+  scale_fill_viridis_c(
+    name = "Delinquency Rate",
+    option = "inferno",
+    na.value = "grey"
+  ) +
+  labs(
+    title = "Property Tax Delinquency Rate by Block Group (2010)",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+
+
+
+
+block_group_delinquency_geo2 <- block_group_shape %>%
+  mutate(GEOID = as.character(GEOID)) %>%
+  left_join(
+    block_group_delinquency %>% filter(year == 2020),
+    by = "GEOID"
+  )
+
+delrate2020 <- ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "grey90", color = "white") +
+  geom_sf(data = block_group_delinquency_geo2,
+          aes(fill = delinquency_rate),
+          color = NA) +
+  scale_fill_viridis_c(
+    name = "Delinquency Rate",
+    option = "inferno",
+    na.value = "grey"
+  ) +
+  labs(
+    title = "Property Tax Delinquency Rate by Block Group (2010)",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void()
+
+
+
+
+
+
+#claude assisted with combining this into one big map
+combined1 <- wrap_plots(delrate2010, delrate2019, delrate2020, ncol = 2)
+
+ggsave("combined_delinq1.png", combined1, width = 22, height = 28, dpi = 200)
+
+knitr::include_graphics("combined_delinq1.png")
+
+```
+
+### Checking for share of delinquent vs not
+
+```{r}
+
+# Simple count
+final_data_panel %>%
+  st_drop_geometry() %>%
+  count(delinquent) %>%
+  mutate(pct = n / sum(n) * 100)
+```
+
+### Categorical Variables EDA
+
+#### Year- start of delinquency
+
+```{r}
+
+#same as above, orgqanized different
+
+ggplot(data = final_data_panel %>% filter(delinquent == 1),
+       aes(x = factor(year))) +
+  geom_bar(fill = "lightblue", color = "white") +
+  labs(
+    title = "Delinquent Property Count by Year (2010-2020)",
+    subtitle = "Single Family Properties in Philadelphia",
+    x = "Year",
+    y = "Count of Delinquent Properties",
+    caption = "Source: OPA/Property Tax Data"
+  ) +
+  theme_minimal()
+
+```
+
+## Means of 2019 ACS Data
+
+```{r}
+
+#Note we decided to only use 2019 property tax data because that is what out ACS data is 
+final_data_panel %>%
+  st_drop_geometry() %>%
+  filter(year == 2019) %>%       
+  group_by(delinquent) %>%
+  summarise(
+    avg_market_value    = round(mean(market_value, na.rm = TRUE)),
+    avg_sale_price      = round(mean(sale_price, na.rm = TRUE)),
+    avg_livable_area    = round(mean(total_livable_area, na.rm = TRUE)),
+    avg_unemp_rate      = round(mean(UNEMP_RATE, na.rm = TRUE), 2),
+    avg_pov_rate        = round(mean(POV_RATE, na.rm = TRUE), 2),
+    avg_snap_rate       = round(mean(SNAP_RATE, na.rm = TRUE), 2),
+    avg_bach_rate       = round(mean(BACH_RATE, na.rm = TRUE), 2),
+    avg_dist_HCA        = round(mean(dist_HCA, na.rm = TRUE)),
+    avg_dist_parks      = round(mean(dist_parks, na.rm = TRUE)),
+    avg_dist_fm_buf     = round(mean(dist_fm_buf, na.rm = TRUE)),
+    n                   = n()
+  ) %>%
+  mutate(delinquent = ifelse(delinquent == 1, "Delinquent", "Not Delinquent")) %>%
+  kable(caption = "Mean Predictors by Delinquency (201)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+```
+
+### Summary Statistics of ACS 2019 data
+
+```{r}
+
+# Delinquent properties
+final_data_panel %>%
+  st_drop_geometry() %>%
+  filter(delinquent == 1) %>%
+  reframe(
+    Variable = c("market_value", "sale_price", "total_livable_area",
+                 "UNEMP_RATE", "POV_RATE", "SNAP_RATE", "BACH_RATE",
+                 "OWN_BURDEN_RATE", "RNT_BURDEN_RATE",
+                 "dist_HCA", "dist_parks", "dist_fm_buf"),
+    Mean = c(round(mean(market_value, na.rm = TRUE), 2),
+             round(mean(sale_price, na.rm = TRUE), 2),
+             round(mean(total_livable_area, na.rm = TRUE), 2),
+             round(mean(UNEMP_RATE, na.rm = TRUE), 2),
+             round(mean(POV_RATE, na.rm = TRUE), 2),
+             round(mean(SNAP_RATE, na.rm = TRUE), 2),
+             round(mean(BACH_RATE, na.rm = TRUE), 2),
+             round(mean(OWN_BURDEN_RATE, na.rm = TRUE), 2),
+             round(mean(RNT_BURDEN_RATE, na.rm = TRUE), 2),
+             round(mean(dist_HCA, na.rm = TRUE), 2),
+             round(mean(dist_parks, na.rm = TRUE), 2),
+             round(mean(dist_fm_buf, na.rm = TRUE), 2)),
+    SD = c(round(sd(market_value, na.rm = TRUE), 2),
+           round(sd(sale_price, na.rm = TRUE), 2),
+           round(sd(total_livable_area, na.rm = TRUE), 2),
+           round(sd(UNEMP_RATE, na.rm = TRUE), 2),
+           round(sd(POV_RATE, na.rm = TRUE), 2),
+           round(sd(SNAP_RATE, na.rm = TRUE), 2),
+           round(sd(BACH_RATE, na.rm = TRUE), 2),
+           round(sd(OWN_BURDEN_RATE, na.rm = TRUE), 2),
+           round(sd(RNT_BURDEN_RATE, na.rm = TRUE), 2),
+           round(sd(dist_HCA, na.rm = TRUE), 2),
+           round(sd(dist_parks, na.rm = TRUE), 2),
+           round(sd(dist_fm_buf, na.rm = TRUE), 2))
+  ) %>%
+  kable(caption = "Summary Statistics — Delinquent Properties") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+# Non-delinquent properties
+final_data_panel %>%
+  st_drop_geometry() %>%
+  filter(delinquent == 0) %>%
+  reframe(
+    Variable = c("market_value", "sale_price", "total_livable_area",
+                 "UNEMP_RATE", "POV_RATE", "SNAP_RATE", "BACH_RATE",
+                 "OWN_BURDEN_RATE", "RNT_BURDEN_RATE",
+                 "dist_HCA", "dist_parks", "dist_fm_buf"),
+    Mean = c(round(mean(market_value, na.rm = TRUE), 2),
+             round(mean(sale_price, na.rm = TRUE), 2),
+             round(mean(total_livable_area, na.rm = TRUE), 2),
+             round(mean(UNEMP_RATE, na.rm = TRUE), 2),
+             round(mean(POV_RATE, na.rm = TRUE), 2),
+             round(mean(SNAP_RATE, na.rm = TRUE), 2),
+             round(mean(BACH_RATE, na.rm = TRUE), 2),
+             round(mean(OWN_BURDEN_RATE, na.rm = TRUE), 2),
+             round(mean(RNT_BURDEN_RATE, na.rm = TRUE), 2),
+             round(mean(dist_HCA, na.rm = TRUE), 2),
+             round(mean(dist_parks, na.rm = TRUE), 2),
+             round(mean(dist_fm_buf, na.rm = TRUE), 2)),
+    SD = c(round(sd(market_value, na.rm = TRUE), 2),
+           round(sd(sale_price, na.rm = TRUE), 2),
+           round(sd(total_livable_area, na.rm = TRUE), 2),
+           round(sd(UNEMP_RATE, na.rm = TRUE), 2),
+           round(sd(POV_RATE, na.rm = TRUE), 2),
+           round(sd(SNAP_RATE, na.rm = TRUE), 2),
+           round(sd(BACH_RATE, na.rm = TRUE), 2),
+           round(sd(OWN_BURDEN_RATE, na.rm = TRUE), 2),
+           round(sd(RNT_BURDEN_RATE, na.rm = TRUE), 2),
+           round(sd(dist_HCA, na.rm = TRUE), 2),
+           round(sd(dist_parks, na.rm = TRUE), 2),
+           round(sd(dist_fm_buf, na.rm = TRUE), 2))
+  ) %>%
+  kable(caption = "Summary Statistics — Non-Delinquent Properties") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+```
+
+```{r}
+model_df %>%
+  distinct(GEOID, .keep_all = TRUE) %>%
+  select(MEDHHINCE, OWN_BURDEN_RATE, OVER65_PROP, 
+         POV_RATE, ) %>%
+  st_drop_geometry() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 40, fill = "#1A7A6E", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Distribution of Census Variables (One Row per Block Group)")
+```
+
+```{r}
+# checking minimums before log transformation
+model_df %>%
+  summarise(
+    min_medhhinc = min(MEDHHINCE, na.rm = TRUE),
+    min_over65 = min(OVER65_PROP, na.rm = TRUE),
+    min_pov_rate = min(POV_RATE, na.rm = TRUE)
+  )
+
+model_df <- model_df %>% 
+  mutate(
+    log_medhhince = log(MEDHHINCE),
+    log_over65 = log(OVER65_PROP +1),
+    log_pov_rate = log(POV_RATE +1)
+  )
+
+
+model_df %>%
+  distinct(GEOID, .keep_all = TRUE) %>%
+  select(log_medhhince, log_over65, log_pov_rate) %>%
+  st_drop_geometry() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 40, fill = "#1A7A6E", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Distribution of Log -Census Variables (One Row per Block Group)")
+```
+
+```{r}
+model_df %>%
+  distinct(opa_number, .keep_all = TRUE) %>%
+  select(market_value, year_built) %>%
+  st_drop_geometry() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 40, fill = "#1B2A4A", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Distribution of Property Characteristics (One Row per Property)")
+```
+
+```{r}
+model_df <- model_df %>% 
+  mutate(
+    log_marketvalue = log(market_value)
+  )
+
+
+model_df %>%
+  distinct(GEOID, .keep_all = TRUE) %>%
+  select(log_marketvalue) %>%
+  st_drop_geometry() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 40, fill = "#1B2A4A", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Distribution of Log Market Value")
+```
+
+## Exploring Categorical and Binary variables
+
+### DISTANCE FEATURES BY DELINQUENCY
+
+```{r}
+#plot dist_HCA, dist_parks, dist_crime_hot
+
+model_df %>%
+  distinct(opa_number, .keep_all = TRUE) %>%
+  select(dist_HCA, disthot_crime) %>% # need to add crime hotspots
+  st_drop_geometry() %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 40, fill = "#1A7A6E", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free") +
+  labs(
+    title = "Distribution of Distance Variables (One Row per Property)",
+    subtitle = "Values in feet (CRS = 2272)",
+    x = "Distance (ft)",
+    y = "Count"
+  )
+
+```
+
+```{r}
+model_df <- model_df %>% 
+  mutate(
+    log_disthca= log(dist_HCA),
+    log_disthotcrime = log(disthot_crime)
+  )
+
+model_df %>%
+  distinct(opa_number, .keep_all = TRUE) %>%
+  select(log_disthca, log_disthotcrime) %>% # need to add crime hotspots
+  st_drop_geometry() %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 40, fill = "#1A7A6E", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free") +
+  labs(
+    title = "Distribution of Distance Variables (One Row per Property)",
+    subtitle = "Values in feet (CRS = 2272)",
+    x = "Distance (ft)",
+    y = "Count"
+  )
+
+```
+
+### Exterior Conditions- add meta data information
+
+### All Binary Spatial Features
+
+```{r}
+
+# Binary spatial features
+final_data_panel %>%
+  st_drop_geometry() %>%
+  select(delinquent, in_bid, in_aff_buf, in_emp) %>%
+  pivot_longer(-delinquent, names_to = "feature", values_to = "value") %>%
+  group_by(feature, value) %>%
+  summarise(delinquency_rate = mean(delinquent) * 100, .groups = "drop") %>%
+  mutate(
+    feature     = recode(feature,
+      in_bid     = "In Business\nImprovement District",
+      in_aff_buf = "Within 0.5mi\nAffordable Housing",
+      in_emp     = "In Empowerment\nZone"),
+    value_label = ifelse(value == 1, "Yes", "No")
+  ) %>%
+  ggplot(aes(x = value_label, y = delinquency_rate, fill = value_label)) +
+  geom_col(alpha = 0.85) +
+  facet_wrap(~ feature) +
+  scale_fill_manual(values = c("Yes" = "salmon", "No" = "purple")) +
+  labs(title = "Delinquency Rate by Spatial Binary Features",
+       x = NULL, y = "Delinquency Rate (%)", fill = NULL) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+```
+
+### Binary: Government Demo or Republic
+
+### ----
+
+## Prepare final model dataframe
+
+```{r final-model-df}
+
+# Drop geometry for modeling (sf objects slow down glm)
+final_model_df <- model_df %>%
+  st_drop_geometry() %>% 
+  # Keep only the variables we'll actually use
+  select(
+    opa_number,
+    year,
+    delinquent,         # outcome
+    # Lag variables
+    lag_delinquent,
+    times_delinquent_before,
+    # Property characteristics
+    log_marketvalue,
+    year_built,
+    # Census block-group/tract level
+    log_medhhince,
+    OWN_BURDEN_RATE,
+    log_over65,
+    log_pov_rate,
+    # Spatial features (best 3)
+    in_bid,
+    log_disthca,
+    log_disthotcrime,
+    in_emp,
+    in_aff_buf,
+    #FIXED EFFECT
+    Name
+  ) %>%
+  na.omit()
+
+# Quick sanity check
+cat("Rows:", nrow(final_model_df), "\n")
+cat("Delinquency rate:", round(mean(final_model_df$delinquent), 3), "\n")
+cat("Years in data:", paste(sort(unique(final_model_df$year)), collapse = ", "), "\n")
+```
+
+# Part 4: Build Logistic Regression
+
+## Temporal Test/Train Split
+
+```{r}
+# Training model data: 2010-2019
+train_data <- final_model_df %>% 
+  filter(year < 2020)
+# Test data: 2020
+test_data <- final_model_df %>% 
+  filter(year == 2020) %>% 
+  filter(lag_delinquent == 0)
+
+cat("Training observations (2010-2019):", nrow(train_data), "\n")
+cat("Test observations (2020):", nrow(test_data), "\n")
+cat("Training delinquency rate:", round(mean(train_data$delinquent), 3), "\n")
+cat("Test delinquency rate:", round(mean(test_data$delinquent), 3), "\n")
+```
+
+## Train Logistic Regression Model
+
+```{r}
+# lag variables only 
+logit_model1 <- glm(
+  delinquent ~ lag_delinquent +
+    times_delinquent_before,
+  data = train_data,
+  family = "binomial"
+)
+
+summary(logit_model1)
+
+# convert coefficients to odds ratios for better interpretation
+exp(coef(logit_model1))
+
+AIC1 <- AIC(logit_model1)
+```
+
+```{r}
+# + Property characteristics
+    
+logit_model2 <- glm(
+  delinquent ~ lag_delinquent +
+    times_delinquent_before +
+    log_marketvalue +
+    year_built,
+  data = train_data,
+  family = "binomial"
+)
+
+AIC2 <- AIC(logit_model2)
+
+summary(logit_model2)
+
+# convert coefficients to odds ratios for better interpretation
+exp(coef(logit_model2))
+
+```
+
+```{r}
+# + census
+
+logit_model3 <- glm(
+  delinquent ~ lag_delinquent +
+    times_delinquent_before +
+    log_marketvalue +
+    year_built +
+    log_medhhince +
+    OWN_BURDEN_RATE +
+    log_over65 +
+    log_pov_rate,
+  data = train_data,
+  family = "binomial"
+)
+
+AIC3 <- AIC(logit_model3)
+
+summary(logit_model3)
+
+# convert coefficients to odds ratios for better interpretation
+exp(coef(logit_model3))
+```
+
+```{r}
+#+ spatial
+logit_model4 <- glm(
+  delinquent ~ lag_delinquent +
+    times_delinquent_before +
+    log_marketvalue +
+    year_built +
+    log_medhhince +
+    OWN_BURDEN_RATE +
+    log_over65 +
+    log_pov_rate + 
+    in_bid +
+    log_disthca +
+    log_disthotcrime +
+    in_emp +
+    in_aff_buf,
+    
+  data = train_data,
+  family = "binomial"
+)
+
+AIC4 <- AIC(logit_model4)
+
+summary(logit_model4)
+
+# convert coefficients to odds ratios for better interpretation
+exp(coef(logit_model4))
+```
+
+```{r}
+#+ FIXED EFFECTS
+logit_model5 <- glm(
+  delinquent ~ lag_delinquent +
+    times_delinquent_before +
+    log_marketvalue +
+    year_built +
+    log_medhhince +
+    OWN_BURDEN_RATE +
+    log_over65 +
+    log_pov_rate + 
+    in_bid +
+    log_disthca +
+    log_disthotcrime +
+    in_emp +
+    in_aff_buf+
+    Name,
+    
+  data = train_data,
+  family = "binomial"
+)
+
+AIC5 <- AIC(logit_model5)
+
+summary(logit_model5)
+```
+
+## Get predicted probabilities
+
+```{r}
+ test_data <- test_data %>% 
+  mutate(
+    predicted_prob = predict(logit_model5, newdata = test_data, type = "response")
+  )
+
+summary(test_data$predicted_prob)
+
+ggplot(test_data, aes(x = predicted_prob, fill = as.factor(delinquent))) +
+  geom_histogram(bins = 50, alpha = 0.7, position = "identity") +
+  scale_fill_manual(
+    values = c("steelblue", "coral"), 
+    labels = c("Not Delinquent", "Delinquent")
+  ) +
+  labs(
+    title = "Predicted Probability of Delinquency in 2020", 
+    x = "Predicted Probability",
+    y = "Count",
+    fill = "Actual Outcome"
+  )
+```
+
+## Confusion Matrix
+
+```{r}
+install.packages("caret")
+library(caret)
+
+test_data <- test_data %>% 
+  mutate(predicted_class_50 = ifelse(predicted_prob > 0.15, 1, 0)) # if predicted probability>0.50, marked as 1 (delinquent)
+
+cm_50 <- confusionMatrix(
+  as.factor(test_data$predicted_class_50), # predicted delinquency
+  as.factor(test_data$delinquent), # actual delinquency
+  positive = "1" # telling confusion matrix what the "positive" outcome is
+)
+
+print(cm_50)
+
+# Pull out the key metrics explicitly
+cat("\nKey Metrics at Threshold = 0.50:\n")
+cat("Sensitivity:", round(cm_50$byClass["Sensitivity"], 3),
+    "— of all properties that became delinquent, how many did we catch?\n")
+cat("Specificity:", round(cm_50$byClass["Specificity"], 3),
+    "— of all properties that stayed current, how many did we correctly spare?\n")
+cat("Precision:", round(cm_50$byClass["Precision"], 3),
+    "— of properties we flagged, how many actually became delinquent?\n")
+cat("Accuracy:", round(cm_50$overall["Accuracy"], 3), "\n")
+
+
+
+# How many unique delinquent properties do you actually have?
+train_data %>% 
+  group_by(delinquent) %>% 
+  summarise(n = n(), unique_properties = n_distinct(opa_number))
+
+
+
+n_delinquent <- sum(train_data$delinquent == 1)
+# n_delinquent should be around 16,058
+
+# 80:20 ratio = 4x non-delinquent
+train_balanced <- bind_rows(
+  train_data %>% filter(delinquent == 1),
+  train_data %>% filter(delinquent == 0) %>% 
+    slice_sample(n = n_delinquent*1.5)
+)
+
+table(train_balanced$delinquent)
+# Should give you roughly:
+# 0: ~64,000
+# 1: ~16,000
+```
+
+```{r}
+logit_modelbalanced <- glm(
+  delinquent ~ lag_delinquent +
+    times_delinquent_before +
+    log_marketvalue +
+    year_built +
+    log_medhhince +
+    OWN_BURDEN_RATE +
+    log_over65 +
+    log_pov_rate + 
+    in_bid +
+    log_disthca +
+    log_disthotcrime +
+    in_emp +
+    in_aff_buf+
+    Name,
+    
+  data = train_balanced,
+  family = "binomial"
+)
+
+AIC6 <- AIC(logit_modelbalanced)
+
+summary(logit_modelbalanced)
+```
+
+### Balanced Model
+
+```{r}
+test_data_clean <- test_data %>%
+  filter(Name %in% unique(train_balanced$Name)) %>%
+  mutate(
+    predicted_prob2 = predict(logit_modelbalanced, newdata = ., type = "response")
+  )
+
+summary(test_data_clean$predicted_prob2)
+
+ggplot(test_data_clean, aes(x = predicted_prob2, fill = as.factor(delinquent))) +
+  geom_histogram(bins = 50, alpha = 0.7, position = "identity") +
+  scale_fill_manual(
+    values = c("steelblue", "coral"), 
+    labels = c("Not Delinquent", "Delinquent")
+  ) +
+  labs(
+    title = "Predicted Probability of Delinquency in 2020", 
+    x = "Predicted Probability",
+    y = "Count",
+    fill = "Actual Outcome"
+  )
+```
+
+```{r}
+test_data_clean <- test_data_clean %>% 
+  mutate(predicted_class_50 = ifelse(predicted_prob2 > 0.15,1, 0)) # if predicted probability>0.50, marked as 1 (delinquent)
+
+cm_50_clean <- confusionMatrix(
+  as.factor(test_data_clean$predicted_class_50), # predicted delinquency
+  as.factor(test_data_clean$delinquent), # actual delinquency
+  positive = "1" # telling confusion matrix what the "positive" outcome is
+)
+
+print(cm_50_clean)
+```
+
+## ROC Curve and AUC
+
+```{r}
+# Generate ROC curve
+install.packages("pROC")
+library(pROC)
+
+roc_obj <- roc(
+  response = test_data_clean$delinquent,
+  predictor = test_data_clean$predicted_prob2
+)
+
+# Plot ROC curve
+ggroc(roc_obj, color = "steelblue", size = 1.5) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed", color = "gray50") +
+  labs(
+    title = "ROC Curve: Property Tax Delinquency Prediction Model",
+    subtitle = paste0("AUC = ", round(auc(roc_obj), 3)),
+    x = "1 - Specificity (False Positive Rate)",
+    y = "Sensitivity (True Positive Rate)"
+  ) +
+  annotate("text", x = 0.5, y = 0.3, 
+           label = "Random Classifier\n(AUC = 0.5)",
+           color = "gray50", size = 3) +
+  coord_fixed()
+
+# Print AUC
+cat("Area Under the Curve (AUC):", round(auc(roc_obj), 3), "\n")
+cat("Interpretation: AUC of", round(auc(roc_obj), 2), 
+    "indicates", ifelse(auc(roc_obj) > 0.8, "good", "acceptable"), 
+    "discrimination\n\n")
+```
+
+## Test Threshold Performance
+
+```{r}
+# Test three different thresholds
+thresholds_to_test <- c(0.15, 0.3, 0.5, 0.7)
+
+threshold_results <- map_df(thresholds_to_test, function(thresh) {
+  # Generate predictions at this threshold
+  preds <- ifelse(test_data_clean$predicted_prob2 > thresh, 1, 0)
+  
+  # Calculate confusion matrix
+  cm <- confusionMatrix(
+    as.factor(preds),
+    as.factor(test_data_clean$delinquent),
+    positive = "1"
+  )
+  
+  # Extract metrics
+  data.frame(
+    threshold = thresh,
+    accuracy = cm$overall["Accuracy"],
+    sensitivity = cm$byClass["Sensitivity"],
+    specificity = cm$byClass["Specificity"],
+    precision = cm$byClass["Precision"],
+    f1_score = cm$byClass["F1"],
+    # Calculate false positive and false negative rates
+    fpr = 1 - cm$byClass["Specificity"],
+    fnr = 1 - cm$byClass["Sensitivity"]
+  )
+})
+
+# Display results
+print(threshold_results)
+
+# Visualize threshold trade-offs
+threshold_results %>%
+  select(threshold, sensitivity, specificity, precision) %>%
+  pivot_longer(cols = c(sensitivity, specificity, precision),
+               names_to = "metric",
+               values_to = "value") %>%
+  ggplot(aes(x = threshold, y = value, color = metric, group = metric)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_color_brewer(palette = "Set1",
+                     labels = c("Precision", "Sensitivity", "Specificity")) +
+  scale_x_continuous(breaks = thresholds_to_test) +
+  labs(
+    title = "Performance Metrics Across Thresholds",
+    subtitle = "The threshold-performance trade-off",
+    x = "Probability Threshold",
+    y = "Metric Value",
+    color = "Metric"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+## Equity Analysis
+
+```{r}
+# Create income quartile groups from census variable logMEDHHINCE
+test_data_clean <- test_data_clean %>% 
+  mutate(
+    income_quartile = ntile(log_medhhince, 4),
+    income_group = case_when(
+      income_quartile == 1 ~ "Lowest Income (Q1)",
+      income_quartile == 2 ~ "Low-Mid Income (Q2)",
+      income_quartile == 3 ~ "Mid-High Income (Q3)",
+      income_quartile == 4 ~ "Highest Income (Q4)"
+    )
+  )
+
+
+# First, calculate overall metrics for comparison
+overall_metrics <- test_data_clean %>%
+  summarise(
+    Group = "Overall",
+    N = n(),
+    Base_Rate = mean(delinquent),
+    Sensitivity = sum(predicted_class_50 == 1 & delinquent == 1) / sum(delinquent == 1),
+    Specificity = sum(predicted_class_50 == 0 & delinquent == 0) / sum(delinquent == 0),
+    Precision = sum(predicted_class_50 == 1 & delinquent == 1) / sum(predicted_class_50 == 1),
+    FPR = sum(predicted_class_50 == 1 & delinquent == 0) / sum(delinquent == 0),
+    FNR = sum(predicted_class_50 == 0 & delinquent == 1) / sum(delinquent == 1)
+  )
+
+# Calculate error rates by income group
+income_metrics <- test_data_clean %>%
+  group_by(income_group) %>%
+  summarise(
+    N = n(),
+    Base_Rate = mean(delinquent),
+    Sensitivity = sum(predicted_class_50 == 1 & delinquent == 1) / sum(delinquent == 1),
+    Specificity = sum(predicted_class_50 == 0 & delinquent == 0) / sum(delinquent == 0),
+    Precision = sum(predicted_class_50 == 1 & delinquent == 1) / sum(predicted_class_50 == 1),
+    FPR = sum(predicted_class_50 == 1 & delinquent == 0) / sum(delinquent == 0),
+    FNR = sum(predicted_class_50 == 0 & delinquent == 1) / sum(delinquent == 1)
+  )
+
+
+print(income_metrics)
+
+# Combine overall and by-group metrics
+equity_analysis <- bind_rows(overall_metrics, income_metrics)
+
+# Display results
+print("=" %>% rep(80) %>% paste0(collapse = ""))
+print("EQUITY ANALYSIS: Model Performance by Income Group (Threshold = 0.5)")
+print("=" %>% rep(80) %>% paste0(collapse = ""))
+print(equity_analysis, width = Inf)
+print("=" %>% rep(80) %>% paste0(collapse = ""))
+
+# Bar chart comparing FPR and FNR across income groups
+income_metrics %>%
+  select(income_group, FPR, FNR) %>%
+  pivot_longer(cols = c(FPR, FNR), names_to = "error_type", values_to = "rate") %>%
+  ggplot(aes(x = income_group, y = rate, fill = error_type)) +
+  geom_col(position = "dodge", alpha = 0.85) +
+  scale_fill_manual(
+    values = c("FPR" = "coral", "FNR" = "steelblue"),
+    labels = c("False Positive Rate", "False Negative Rate")
+  ) +
+  labs(
+    title    = "Model Error Rates by Neighborhood Income Level (2020)",
+    subtitle = "Does the model err differently across income groups?",
+    x        = "Neighborhood Income Quartile",
+    y        = "Error Rate",
+    fill     = "Error Type"
+  ) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+```{r}
+# Step 1 - get Q2 opa numbers from test_data_clean
+q2_opa_numbers <- test_data_clean %>%
+  filter(income_group == "Low-Mid Income (Q2)") %>%
+  pull(opa_number) %>%
+  unique()
+
+# Step 2 - get GEOIDs for those properties from final_data_panel
+q2_geoids <- final_data_panel %>%
+  st_drop_geometry() %>%
+  filter(opa_number %in% q2_opa_numbers) %>%
+  select(GEOID) %>%
+  distinct() %>%
+  mutate(GEOID = as.character(GEOID))
+
+# Step 3 - flag block groups that have Q2 properties
+q2_map <- block_group_shape %>%
+  mutate(GEOID = as.character(GEOID)) %>%
+  mutate(is_q2 = GEOID %in% q2_geoids$GEOID)
+
+# Step 4 - plot
+ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "grey90", color = NA) +
+  geom_sf(data = q2_map %>% filter(!is_q2), fill = "grey80", color = NA, linewidth = 0.001) +
+  geom_sf(data = q2_map %>% filter(is_q2), fill = "#1B2A4A", color = NA, linewidth = 0.001) +
+  labs(
+    title = "Low-Mid Income (Q2) Block Groups in Philadelphia",
+    subtitle = "Highlighted block groups contain Q2 income properties",
+    caption = "Source: OPA / Property Tax Data"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey40"),
+    plot.caption = element_text(size = 8, hjust = 0.5, color = "grey50")
+  )
+```
+
+```{r}
+# Check what GEOID looks like in final_data_panel
+head(final_data_panel$GEOID)
+
+# Step 1 - calculate residuals
+test_data_clean <- test_data_clean %>%
+  mutate(residual = delinquent - predicted_prob2)
+
+# Step 2 - get GEOID back from final_data_panel
+geoid_lookup <- final_data_panel %>%
+  st_drop_geometry() %>%
+  select(opa_number, GEOID) %>%
+  filter(!is.na(GEOID)) %>%
+  distinct() %>%
+  mutate(GEOID = as.character(GEOID),
+         opa_number = as.character(opa_number))
+
+test_data_clean <- test_data_clean %>%
+  mutate(opa_number = as.character(opa_number)) %>%
+  left_join(geoid_lookup, by = "opa_number")
+
+# Check it worked
+cat("GEOIDs found:", sum(!is.na(test_data_clean$GEOID)), "\n")
+cat("GEOIDs missing:", sum(is.na(test_data_clean$GEOID)), "\n")
+
+# Step 3 - aggregate residuals to block group level
+residuals_by_bg <- test_data_clean %>%
+  filter(!is.na(GEOID)) %>%
+  group_by(GEOID) %>%
+  summarise(mean_residual = mean(residual, na.rm = TRUE),
+            n = n()) %>%
+  ungroup() %>%
+  mutate(GEOID = as.character(GEOID))
+
+# Step 4 - join to block group shapefile
+block_group_residuals <- block_group_shape %>%
+  mutate(GEOID = as.character(GEOID)) %>%
+  left_join(residuals_by_bg, by = "GEOID")
+
+# Step 5 - map it
+ggplot() +
+  geom_sf(data = PHL_LIMITS, fill = "grey90", color = NA) +
+  geom_sf(data = block_group_residuals,
+          aes(fill = mean_residual),
+          color = NA) +
+  scale_fill_gradient2(
+    low      = "lightgreen",
+    mid      = "orange",
+    high     = "tomato",
+    midpoint = 0,
+    name     = "Mean Residual",
+    na.value = "grey80"
+  ) +
+  labs(
+    title    = "Where Does Our Model Struggle?",
+    subtitle = "Mean Prediction Residual by Block Group",
+    caption  = "Red = model underestimates delinquency | Green = model overestimates delinquency"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey40"),
+    plot.caption = element_text(size = 8, hjust = 0.5, color = "grey50")
+  )
+```
