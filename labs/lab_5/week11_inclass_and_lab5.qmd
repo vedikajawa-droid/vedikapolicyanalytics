@@ -1,7 +1,7 @@
 ---
 title: "Bikeshare_SpaceTime_Prediction"
 subtitle: "CPLN 5080 - Spring 2026"
-author: "Your Name"
+author: "Vedika Jawa"
 date: today
 format:
   html:
@@ -825,7 +825,7 @@ Station fixed effects capture the baseline differences in demand across stations
 ```{r model5}
 model5 <- lm(
   Trip_Count ~ as.factor(hour) + dotw_simple + Temperature + Precipitation +
-    lag1Hour + lag3Hours + lag1day + rush_hour + as.factor(month) +
+    lag1Hour + lag3Hours + lag1day + rush_hour + month +
     Med_Inc + Percent_Taking_Transit + Percent_White +
     as.factor(start_station) +
     rush_hour * weekend,  # Rush hour effects different on weekends
@@ -1463,13 +1463,20 @@ table(indego_q2$bike_type)
     common_stations_q2 <- intersect(early_stations_q2, late_stations_q2)
 
     study_panel_complete_q2 <- study_panel_complete_q2 %>%
-      filter(start_station %in% common_stations_q2)
+      filter(start_station %in% common_stations_q2) %>%
+      mutate(month = factor(month, levels = month.abb))
 
     train_q2 <- study_panel_complete_q2 %>%
       filter(date < as.Date("2025-06-01"))
 
     test_q2 <- study_panel_complete_q2 %>%
       filter(date >= as.Date("2025-06-01"))
+
+    all_months <- c("Jan","Feb","Mar","Apr","May","Jun",
+                    "Jul","Aug","Sep","Oct","Nov","Dec")
+
+    train_q2$month <- factor(train_q2$month, levels = all_months)
+    test_q2$month  <- factor(test_q2$month, levels = all_months)
 
     cat("Training observations:", format(nrow(train_q2), big.mark = ","), "\n")
     cat("Testing observations:", format(nrow(test_q2), big.mark = ","), "\n")
@@ -1538,7 +1545,7 @@ table(indego_q2$bike_type)
     model5_q2 <- lm(
       Trip_Count ~ as.factor(hour) + dotw_simple + Temperature + Precipitation +
         lag1Hour + lag3Hours + lag1day +
-        rush_hour + as.factor(month) +
+        rush_hour + as.numeric(month) +
         Med_Inc + Percent_Taking_Transit + Percent_White +
         as.factor(start_station) +
         rush_hour * weekend,
